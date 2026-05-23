@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Generate an STL for $project_name.
+$summary_docstring
+Coordinate system (right-handed):
+$coord_docstring
+
+All geometry constants are at the top of this file; a subset is exposed on the
+CLI. See --help.
+
+This is a freshly scaffolded skeleton: it builds a $cube_size_default mm cube so
+the repo runs out of the box. Replace `build_part` with the real geometry.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from build123d import Box, export_stl
+
+# === Part geometry ==========================================================
+CUBE_SIZE_MM = $cube_size_default  # edge length of the placeholder cube
+$seeded_constants
+DEFAULT_OUTPUT = "$default_output"
+
+
+# ----------------------------------------------------------------------------
+# Geometry helpers
+# ----------------------------------------------------------------------------
+# Add small reusable factory functions here (one feature per function). Keep
+# Boolean ops robust: when a cut or fuse touches a face of the parent solid,
+# give the cutter a small overshoot so OCCT never resolves coincident faces.
+
+
+# ----------------------------------------------------------------------------
+# Assembly
+# ----------------------------------------------------------------------------
+
+
+def build_part(*, size: float):
+    """Build the part solid.
+
+    Placeholder geometry: a cube of edge length `size`, sitting on the build
+    plate (z = 0). Replace this body with the real part; the seeded constants
+    above are ready to wire in.
+    """
+    return Box(size, size, size).translate((0, 0, size / 2))
+
+
+# ----------------------------------------------------------------------------
+# CLI
+# ----------------------------------------------------------------------------
+
+
+def _parse_args():
+    p = argparse.ArgumentParser(
+        description="Generate an STL for $project_name.",
+    )
+    p.add_argument(
+        "--size",
+        type=float,
+        default=CUBE_SIZE_MM,
+        metavar="LENGTH",
+        help=f"Edge length of the placeholder cube in mm. Default: {CUBE_SIZE_MM}.",
+    )
+$seeded_cli_args    p.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=f"STL output path. Default: {DEFAULT_OUTPUT}.",
+    )
+    return p.parse_args()
+
+
+def main():
+    args = _parse_args()
+
+    if args.output is None:
+        args.output = Path(DEFAULT_OUTPUT)
+
+    print("$project_name — resolved parameters:")
+    print(f"  Cube size            : {args.size} mm")
+$seeded_param_prints    print(f"  Output               : {args.output}")
+    print()
+
+    solid = build_part(size=args.size)
+
+    out_path = args.output
+    if out_path.parent and str(out_path.parent) not in ("", "."):
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    export_stl(solid, str(out_path))
+    print(f"Wrote STL: {out_path}")
+
+
+if __name__ == "__main__":
+    main()

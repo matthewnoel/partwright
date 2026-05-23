@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Partwright — SVG Sketch Tool</title>
+<style>
+  :root {
+    --bg: #1e1f24;
+    --panel: #2a2c33;
+    --panel-2: #33363f;
+    --border: #3d4049;
+    --text: #e6e7ea;
+    --text-dim: #9a9da6;
+    --accent: #5b9dff;
+    --accent-2: #4a8aee;
+    --canvas-bg: #fbfbfd;
+    --grid: #e2e4ea;
+    --grid-major: #c9ccd6;
+    --shape-fill: rgba(91, 157, 255, 0.18);
+    --shape-stroke: #2f6fd4;
+    --vertex: #2f6fd4;
+    --vertex-first: #d4642f;
+    --calib: #d4642f;
+    --danger: #e0584e;
+    --ok: #4caf7d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    overflow: hidden;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 14px; font-weight: 600; margin: 0;
+    letter-spacing: 0.3px;
+  }
+  header h1 .sub { color: var(--text-dim); font-weight: 400; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .group {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 8px;
+    border-right: 1px solid var(--border);
+  }
+  .group:last-child { border-right: none; }
+  .group-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--text-dim); margin-right: 2px;
+  }
+
+  button, select, input[type=text], input[type=number] {
+    font-family: inherit; font-size: 12px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 9px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--border); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-2); }
+  input[type=text], input[type=number] { cursor: text; width: 70px; }
+  input[type=number] { width: 64px; }
+  label.chk { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; }
+  input[type=checkbox] { cursor: pointer; }
+
+  main { flex: 1; position: relative; overflow: hidden; background: var(--canvas-bg); }
+  #canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  #canvas.panning { cursor: grabbing; }
+  #canvas.dragging { cursor: move; }
+
+  footer {
+    display: flex; align-items: center; gap: 16px;
+    padding: 5px 14px; background: var(--panel);
+    border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  footer .status { color: var(--text); }
+  footer .spacer { flex: 1; }
+  .badge {
+    padding: 2px 7px; border-radius: 4px; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge.quick { background: #3a4756; color: #9ec3ff; }
+  .badge.precise { background: #4a3a2a; color: #ffc79e; }
+  .badge.server { background: #2a4a38; color: #8fe0b3; }
+  .badge.local { background: #4a3a2a; color: #ffc79e; }
+
+  /* modal / dialog */
+  .overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .overlay.show { display: flex; }
+  .dialog {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px 20px; min-width: 320px; max-width: 440px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .dialog h2 { margin: 0 0 10px; font-size: 14px; }
+  .dialog p { margin: 6px 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .dialog .row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+  .dialog .row label { font-size: 12px; min-width: 90px; }
+  .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .dialog input { width: 100%; }
+  .dialog .row input { width: auto; flex: 1; }
+  .file-list {
+    max-height: 220px; overflow-y: auto; margin: 8px 0;
+    border: 1px solid var(--border); border-radius: 5px;
+  }
+  .file-item {
+    padding: 7px 10px; font-size: 12px; cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+  .file-item:last-child { border-bottom: none; }
+  .file-item:hover { background: var(--panel-2); }
+  .file-item.empty { color: var(--text-dim); cursor: default; }
+  .toast {
+    position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 16px; border-radius: 6px;
+    font-size: 12px; z-index: 60; opacity: 0; transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { border-color: var(--danger); }
+  kbd {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px; font-size: 10px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Print&nbsp;Lab <span class="sub">SVG Sketch</span></h1>
+    <div class="toolbar">
+      <div class="group">
+        <span class="group-label">Mode</span>
+        <button id="modeQuick" class="active">Quick</button>
+        <button id="modePrecise">Precise</button>
+      </div>
+      <div class="group">
+        <span class="group-label">Edit</span>
+        <button id="undoBtn" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <button id="redoBtn" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
+        <button id="clearBtn" title="Clear all">Clear</button>
+      </div>
+      <div class="group">
+        <span class="group-label">Grid</span>
+        <label class="chk"><input type="checkbox" id="snapChk"> Snap</label>
+        <input type="number" id="gridSize" value="20" min="2" max="200" step="1" title="Grid spacing">
+        <span id="gridUnit" style="font-size:11px;color:var(--text-dim)">px</span>
+      </div>
+      <div class="group">
+        <span class="group-label">View</span>
+        <button id="zoomInBtn" title="Zoom in">+</button>
+        <button id="zoomOutBtn" title="Zoom out">&minus;</button>
+        <button id="zoomFitBtn" title="Reset view">Fit</button>
+      </div>
+      <div class="group" id="preciseControls" style="display:none">
+        <span class="group-label">Scale</span>
+        <button id="calibBtn" title="Draw a calibration segment">Calibrate</button>
+        <input type="number" id="scaleInput" value="1" min="0.0001" step="0.1" title="mm per pixel">
+        <span style="font-size:11px;color:var(--text-dim)">mm/px</span>
+      </div>
+      <div class="group">
+        <span class="group-label">File</span>
+        <button id="openBtn">Open</button>
+        <button id="saveBtn" class="primary">Save</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="toast" id="toast"></div>
+
+    <div class="overlay" id="overlay">
+      <div class="dialog" id="dialogBox"></div>
+    </div>
+  </main>
+
+  <footer>
+    <span class="status" id="statusText">Click on the canvas to place polygon vertices.</span>
+    <span class="spacer"></span>
+    <span id="coordReadout"></span>
+    <span class="badge" id="modeBadge">quick</span>
+    <span class="badge" id="connBadge">local</span>
+  </footer>
+</div>
+
+<input type="file" id="fileInput" accept=".svg,image/svg+xml" style="display:none">
+
+<script>
+"use strict";
+(function () {
+
+  // ----------------------------------------------------------------------
+  // State
+  // ----------------------------------------------------------------------
+  var svg = document.getElementById("canvas");
+
+  var state = {
+    // Completed polygons: array of { points: [[x,y],...] }  (world/model coords, px units)
+    shapes: [],
+    // In-progress polygon vertices (world coords)
+    draft: [],
+    // View transform: world -> screen is  screen = world * zoom + pan
+    zoom: 1,
+    pan: { x: 0, y: 0 },
+    // Interaction
+    mode: "quick",          // "quick" | "precise"
+    snap: false,
+    gridSize: 20,           // world px
+    scale: 1,               // mm per world-px (precise mode)
+    units: "mm",
+    // calibration sub-mode
+    calibrating: false,
+    calibPoints: [],
+    // undo/redo
+    history: [],
+    historyIndex: -1,
+  };
+
+  // transient pointer-driven flags
+  var ui = {
+    panning: false,
+    panStart: null,         // {x,y} screen
+    panOrigin: null,        // {x,y} world pan
+    dragVertex: null,       // { shapeIdx, vertexIdx } or { draft:true, vertexIdx }
+    mouseWorld: { x: 0, y: 0 },
+    movedSinceDown: false,
+    pointerDownAt: null,
+  };
+
+  var VERTEX_R = 5;          // screen px hit radius for vertices
+  var CLOSE_R = 9;           // screen px radius to close polygon on first vertex
+
+  // ----------------------------------------------------------------------
+  // Server detection
+  // ----------------------------------------------------------------------
+  var isServed = (location.protocol === "http:" || location.protocol === "https:");
+
+  // ----------------------------------------------------------------------
+  // Coordinate transforms
+  // ----------------------------------------------------------------------
+  function worldToScreen(p) {
+    return { x: p[0] * state.zoom + state.pan.x, y: p[1] * state.zoom + state.pan.y };
+  }
+  function screenToWorld(sx, sy) {
+    return [(sx - state.pan.x) / state.zoom, (sy - state.pan.y) / state.zoom];
+  }
+  function eventToScreen(e) {
+    var r = svg.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function snapWorld(p) {
+    if (!state.snap) return p;
+    var g = state.gridSize;
+    return [Math.round(p[0] / g) * g, Math.round(p[1] / g) * g];
+  }
+
+  // ----------------------------------------------------------------------
+  // History (undo / redo)
+  // ----------------------------------------------------------------------
+  function snapshot() {
+    return JSON.stringify({ shapes: state.shapes, draft: state.draft });
+  }
+  function pushHistory() {
+    // drop any redo tail
+    state.history = state.history.slice(0, state.historyIndex + 1);
+    state.history.push(snapshot());
+    state.historyIndex = state.history.length - 1;
+    // cap history
+    if (state.history.length > 200) {
+      state.history.shift();
+      state.historyIndex--;
+    }
+    updateButtons();
+  }
+  function restore(snap) {
+    var obj = JSON.parse(snap);
+    state.shapes = obj.shapes;
+    state.draft = obj.draft;
+  }
+  function undo() {
+    if (state.historyIndex <= 0) return;
+    state.historyIndex--;
+    restore(state.history[state.historyIndex]);
+    render();
+    updateButtons();
+    setStatus("Undo.");
+  }
+  function redo() {
+    if (state.historyIndex >= state.history.length - 1) return;
+    state.historyIndex++;
+    restore(state.history[state.historyIndex]);
+    render();
+    updateButtons();
+    setStatus("Redo.");
+  }
+
+  // ----------------------------------------------------------------------
+  // Rendering
+  // ----------------------------------------------------------------------
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function el(name, attrs) {
+    var n = document.createElementNS(SVGNS, name);
+    if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+
+  function render() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var w = svg.clientWidth, h = svg.clientHeight;
+
+    // --- grid ---
+    if (state.snap) drawGrid(w, h);
+
+    // --- completed shapes ---
+    state.shapes.forEach(function (shape, si) {
+      var pts = shape.points.map(function (p) {
+        var s = worldToScreen(p);
+        return s.x + "," + s.y;
+      }).join(" ");
+      svg.appendChild(el("polygon", {
+        points: pts,
+        fill: "var(--shape-fill)",
+        stroke: "var(--shape-stroke)",
+        "stroke-width": "2",
+        "stroke-linejoin": "round",
+      }));
+      // vertices
+      shape.points.forEach(function (p, vi) {
+        var s = worldToScreen(p);
+        var c = el("circle", {
+          cx: s.x, cy: s.y, r: VERTEX_R,
+          fill: "var(--vertex)", stroke: "#fff", "stroke-width": "1.5",
+          "data-shape": si, "data-vertex": vi, class: "vtx",
+        });
+        c.style.cursor = "move";
+        svg.appendChild(c);
+      });
+    });
+
+    // --- in-progress draft polygon ---
+    if (state.draft.length > 0) {
+      var dpts = state.draft.map(function (p) {
+        var s = worldToScreen(p);
+        return s.x + "," + s.y;
+      });
+      // rubber-band to current mouse
+      var mscreen = worldToScreen([ui.mouseWorld.x, ui.mouseWorld.y]);
+      var live = dpts.concat([mscreen.x + "," + mscreen.y]);
+      svg.appendChild(el("polyline", {
+        points: live.join(" "),
+        fill: "none",
+        stroke: "var(--accent)",
+        "stroke-width": "2",
+        "stroke-dasharray": "5 4",
+        "stroke-linejoin": "round",
+      }));
+      state.draft.forEach(function (p, vi) {
+        var s = worldToScreen(p);
+        var first = (vi === 0);
+        var c = el("circle", {
+          cx: s.x, cy: s.y, r: first ? CLOSE_R - 2 : VERTEX_R,
+          fill: first ? "var(--vertex-first)" : "var(--vertex)",
+          stroke: "#fff", "stroke-width": "1.5",
+          "data-draft": "1", "data-vertex": vi, class: "vtx",
+        });
+        c.style.cursor = "move";
+        svg.appendChild(c);
+      });
+    }
+
+    // --- calibration overlay ---
+    if (state.calibrating && state.calibPoints.length > 0) {
+      var cpts = state.calibPoints.map(function (p) {
+        var s = worldToScreen(p);
+        return s.x + "," + s.y;
+      });
+      var cend = state.calibPoints.length === 1
+        ? worldToScreen([ui.mouseWorld.x, ui.mouseWorld.y])
+        : worldToScreen(state.calibPoints[1]);
+      var endStr = state.calibPoints.length === 1
+        ? cend.x + "," + cend.y
+        : cpts[1];
+      svg.appendChild(el("polyline", {
+        points: cpts[0] + " " + endStr,
+        fill: "none", stroke: "var(--calib)", "stroke-width": "2.5",
+      }));
+      state.calibPoints.forEach(function (p) {
+        var s = worldToScreen(p);
+        svg.appendChild(el("circle", {
+          cx: s.x, cy: s.y, r: 5, fill: "var(--calib)",
+          stroke: "#fff", "stroke-width": "1.5",
+        }));
+      });
+    }
+  }
+
+  function drawGrid(w, h) {
+    var g = state.gridSize * state.zoom;
+    if (g < 4) return; // too dense to be useful
+    var ox = state.pan.x % g;
+    var oy = state.pan.y % g;
+    // index of first line for major-line detection
+    var firstX = Math.floor(-state.pan.x / g);
+    var firstY = Math.floor(-state.pan.y / g);
+    var i, x, y, idx;
+    for (i = 0, x = ox; x < w; x++, i++) {
+      x = ox + i * g;
+      if (x > w) break;
+      idx = firstX + i;
+      var majorX = (idx % 5 === 0);
+      svg.appendChild(el("line", {
+        x1: x, y1: 0, x2: x, y2: h,
+        stroke: majorX ? "var(--grid-major)" : "var(--grid)",
+        "stroke-width": "1",
+      }));
+    }
+    for (i = 0, y = oy; y < h; y++, i++) {
+      y = oy + i * g;
+      if (y > h) break;
+      idx = firstY + i;
+      var majorY = (idx % 5 === 0);
+      svg.appendChild(el("line", {
+        x1: 0, y1: y, x2: w, y2: y,
+        stroke: majorY ? "var(--grid-major)" : "var(--grid)",
+        "stroke-width": "1",
+      }));
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // Hit testing
+  // ----------------------------------------------------------------------
+  function hitVertex(screenPt) {
+    // check draft first (drawn on top), then shapes
+    var i;
+    for (i = state.draft.length - 1; i >= 0; i--) {
+      var s = worldToScreen(state.draft[i]);
+      var r = (i === 0) ? CLOSE_R : VERTEX_R + 3;
+      if (dist(s, screenPt) <= r) return { draft: true, vertexIdx: i };
+    }
+    for (var si = state.shapes.length - 1; si >= 0; si--) {
+      var pts = state.shapes[si].points;
+      for (var vi = pts.length - 1; vi >= 0; vi--) {
+        var sp = worldToScreen(pts[vi]);
+        if (dist(sp, screenPt) <= VERTEX_R + 3) {
+          return { shapeIdx: si, vertexIdx: vi };
+        }
+      }
+    }
+    return null;
+  }
+  function dist(a, b) {
+    var dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // ----------------------------------------------------------------------
+  // Polygon drawing interaction
+  // ----------------------------------------------------------------------
+  function placeVertex(worldPt) {
+    // closing: clicked near first vertex of an in-progress polygon
+    if (state.draft.length >= 3) {
+      var firstScreen = worldToScreen(state.draft[0]);
+      var clickScreen = worldToScreen(worldPt);
+      if (dist(firstScreen, clickScreen) <= CLOSE_R + 2) {
+        closeDraft();
+        return;
+      }
+    }
+    state.draft.push([worldPt[0], worldPt[1]]);
+    render();
+    setStatus(state.draft.length + " vertex" + (state.draft.length === 1 ? "" : "es")
+      + " placed. Click the first point or press Enter to close.");
+  }
+
+  function closeDraft() {
+    if (state.draft.length < 3) {
+      setStatus("Need at least 3 vertices to close a polygon.", true);
+      return;
+    }
+    state.shapes.push({ points: state.draft.slice() });
+    state.draft = [];
+    pushHistory();
+    render();
+    setStatus("Polygon closed. " + state.shapes.length + " shape(s) on canvas.");
+  }
+
+  function cancelDraft() {
+    if (state.draft.length === 0) return;
+    state.draft = [];
+    render();
+    setStatus("Polygon cancelled.");
+  }
+
+  // ----------------------------------------------------------------------
+  // Calibration (precise mode)
+  // ----------------------------------------------------------------------
+  function startCalibration() {
+    if (state.mode !== "precise") return;
+    state.calibrating = true;
+    state.calibPoints = [];
+    cancelDraft();
+    svg.style.cursor = "crosshair";
+    setStatus("Calibration: click two points spanning a known length.");
+  }
+  function finishCalibration() {
+    var a = state.calibPoints[0], b = state.calibPoints[1];
+    var pxLen = Math.sqrt(Math.pow(b[0] - a[0], 2) + Math.pow(b[1] - a[1], 2));
+    if (pxLen < 1) {
+      setStatus("Calibration segment too short — try again.", true);
+      state.calibrating = false;
+      state.calibPoints = [];
+      render();
+      return;
+    }
+    showCalibDialog(pxLen);
+  }
+
+  // ----------------------------------------------------------------------
+  // Pointer events
+  // ----------------------------------------------------------------------
+  svg.addEventListener("pointerdown", function (e) {
+    svg.setPointerCapture(e.pointerId);
+    var sp = eventToScreen(e);
+    ui.movedSinceDown = false;
+    ui.pointerDownAt = sp;
+
+    // middle-button or space-pan or shift-drag: pan
+    if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
+      ui.panning = true;
+      ui.panStart = sp;
+      ui.panOrigin = { x: state.pan.x, y: state.pan.y };
+      svg.classList.add("panning");
+      return;
+    }
+
+    if (e.button !== 0) return;
+
+    var worldRaw = screenToWorld(sp.x, sp.y);
+
+    // calibration mode
+    if (state.calibrating) {
+      var cp = snapWorld(worldRaw);
+      state.calibPoints.push(cp);
+      if (state.calibPoints.length === 2) {
+        finishCalibration();
+      } else {
+        render();
+      }
+      return;
+    }
+
+    // try grabbing a vertex to drag
+    var hit = hitVertex(sp);
+    if (hit) {
+      // if it's the first draft vertex and we have >=3, treat as close on click (handled on up)
+      ui.dragVertex = hit;
+      svg.classList.add("dragging");
+      return;
+    }
+
+    // otherwise: place a vertex (handled on pointerup if not a drag)
+    ui.dragVertex = null;
+  });
+
+  svg.addEventListener("pointermove", function (e) {
+    var sp = eventToScreen(e);
+    var worldRaw = screenToWorld(sp.x, sp.y);
+    ui.mouseWorld = { x: worldRaw[0], y: worldRaw[1] };
+
+    if (ui.pointerDownAt && dist(sp, ui.pointerDownAt) > 3) {
+      ui.movedSinceDown = true;
+    }
+
+    updateCoordReadout(worldRaw);
+
+    // panning
+    if (ui.panning) {
+      state.pan.x = ui.panOrigin.x + (sp.x - ui.panStart.x);
+      state.pan.y = ui.panOrigin.y + (sp.y - ui.panStart.y);
+      render();
+      return;
+    }
+
+    // dragging a vertex
+    if (ui.dragVertex) {
+      var wp = snapWorld(worldRaw);
+      if (ui.dragVertex.draft) {
+        state.draft[ui.dragVertex.vertexIdx] = wp;
+      } else {
+        state.shapes[ui.dragVertex.shapeIdx].points[ui.dragVertex.vertexIdx] = wp;
+      }
+      render();
+      return;
+    }
+
+    // rubber band / calibration preview
+    if (state.draft.length > 0 || (state.calibrating && state.calibPoints.length === 1)) {
+      render();
+    }
+  });
+
+  svg.addEventListener("pointerup", function (e) {
+    var sp = eventToScreen(e);
+    if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+
+    if (ui.panning) {
+      ui.panning = false;
+      svg.classList.remove("panning");
+      ui.pointerDownAt = null;
+      return;
+    }
+
+    if (e.button !== 0) { ui.pointerDownAt = null; return; }
+
+    if (state.calibrating) { ui.pointerDownAt = null; return; }
+
+    var worldRaw = screenToWorld(sp.x, sp.y);
+
+    // releasing a vertex drag
+    if (ui.dragVertex) {
+      if (ui.movedSinceDown) {
+        pushHistory();
+        setStatus("Vertex moved.");
+      } else {
+        // a click (no movement) on a vertex
+        var dv = ui.dragVertex;
+        if (dv.draft && dv.vertexIdx === 0 && state.draft.length >= 3) {
+          closeDraft();
+        }
+        // click on existing-shape vertex with no move: no-op (select-less MVP)
+      }
+      ui.dragVertex = null;
+      svg.classList.remove("dragging");
+      ui.pointerDownAt = null;
+      return;
+    }
+
+    // empty-space click that wasn't a pan/drag: place vertex
+    if (!ui.movedSinceDown) {
+      placeVertex(snapWorld(worldRaw));
+    }
+    ui.pointerDownAt = null;
+  });
+
+  // right-click on a vertex = delete it
+  svg.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+    var sp = eventToScreen(e);
+    var hit = hitVertex(sp);
+    if (hit) deleteVertex(hit);
+  });
+
+  // double-click on a vertex = delete it (alternative to right-click)
+  svg.addEventListener("dblclick", function (e) {
+    var sp = eventToScreen(e);
+    var hit = hitVertex(sp);
+    if (hit) {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteVertex(hit);
+    }
+  });
+
+  function deleteVertex(hit) {
+    if (hit.draft) {
+      state.draft.splice(hit.vertexIdx, 1);
+      render();
+      setStatus("Draft vertex deleted.");
+      return;
+    }
+    var shape = state.shapes[hit.shapeIdx];
+    if (shape.points.length <= 3) {
+      // deleting would make a degenerate polygon: remove whole shape
+      state.shapes.splice(hit.shapeIdx, 1);
+      setStatus("Shape removed (a polygon needs at least 3 vertices).");
+    } else {
+      shape.points.splice(hit.vertexIdx, 1);
+      setStatus("Vertex deleted.");
+    }
+    pushHistory();
+    render();
+  }
+
+  // ----------------------------------------------------------------------
+  // Zoom (wheel)
+  // ----------------------------------------------------------------------
+  svg.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var sp = eventToScreen(e);
+    var factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    zoomAt(sp, factor);
+  }, { passive: false });
+
+  function zoomAt(screenPt, factor) {
+    var before = screenToWorld(screenPt.x, screenPt.y);
+    state.zoom *= factor;
+    state.zoom = Math.max(0.05, Math.min(40, state.zoom));
+    // keep the world point under the cursor fixed
+    state.pan.x = screenPt.x - before[0] * state.zoom;
+    state.pan.y = screenPt.y - before[1] * state.zoom;
+    render();
+  }
+  function zoomCenter(factor) {
+    zoomAt({ x: svg.clientWidth / 2, y: svg.clientHeight / 2 }, factor);
+  }
+  function resetView() {
+    state.zoom = 1;
+    state.pan = { x: 0, y: 0 };
+    render();
+  }
+
+  // ----------------------------------------------------------------------
+  // Keyboard
+  // ----------------------------------------------------------------------
+  document.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) {
+      return; // don't hijack typing
+    }
+    if (e.key === "Enter") {
+      if (state.draft.length >= 3) { closeDraft(); e.preventDefault(); }
+    } else if (e.key === "Escape") {
+      if (state.calibrating) {
+        state.calibrating = false;
+        state.calibPoints = [];
+        render();
+        setStatus("Calibration cancelled.");
+      } else {
+        cancelDraft();
+      }
+      e.preventDefault();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+      undo(); e.preventDefault();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" ||
+               (e.key.toLowerCase() === "z" && e.shiftKey))) {
+      redo(); e.preventDefault();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && state.draft.length > 0) {
+      // delete last placed draft vertex
+      state.draft.pop();
+      render();
+      setStatus("Last vertex removed.");
+      e.preventDefault();
+    }
+  });
+
+  // ----------------------------------------------------------------------
+  // UI: status, coords, toast
+  // ----------------------------------------------------------------------
+  function setStatus(msg, isError) {
+    var s = document.getElementById("statusText");
+    s.textContent = msg;
+    s.style.color = isError ? "var(--danger)" : "";
+  }
+  function updateCoordReadout(worldPt) {
+    var r = document.getElementById("coordReadout");
+    if (state.mode === "precise") {
+      var mx = (worldPt[0] * state.scale).toFixed(2);
+      var my = (worldPt[1] * state.scale).toFixed(2);
+      r.textContent = mx + ", " + my + " " + state.units;
+    } else {
+      r.textContent = Math.round(worldPt[0]) + ", " + Math.round(worldPt[1]) + " px";
+    }
+  }
+  var toastTimer = null;
+  function toast(msg, isError) {
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.toggle("err", !!isError);
+    t.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  }
+  function updateButtons() {
+    document.getElementById("undoBtn").disabled = state.historyIndex <= 0;
+    document.getElementById("redoBtn").disabled =
+      state.historyIndex >= state.history.length - 1;
+  }
+
+  // ----------------------------------------------------------------------
+  // Mode switching
+  // ----------------------------------------------------------------------
+  function setMode(mode) {
+    state.mode = mode;
+    document.getElementById("modeQuick").classList.toggle("active", mode === "quick");
+    document.getElementById("modePrecise").classList.toggle("active", mode === "precise");
+    document.getElementById("preciseControls").style.display =
+      mode === "precise" ? "" : "none";
+    var badge = document.getElementById("modeBadge");
+    badge.textContent = mode;
+    badge.className = "badge " + mode;
+    document.getElementById("gridUnit").textContent =
+      mode === "precise" ? "px" : "px";
+    if (mode === "quick") {
+      state.calibrating = false;
+      state.calibPoints = [];
+    }
+    setStatus(mode === "precise"
+      ? "Precise mode: set a scale by ratio or by drawing a calibration segment."
+      : "Quick mode: freehand sketching, no scale.");
+    render();
+  }
+
+  // ----------------------------------------------------------------------
+  // Dialogs
+  // ----------------------------------------------------------------------
+  var overlay = document.getElementById("overlay");
+  var dialogBox = document.getElementById("dialogBox");
+
+  function openDialog(html) {
+    dialogBox.innerHTML = html;
+    overlay.classList.add("show");
+  }
+  function closeDialog() {
+    overlay.classList.remove("show");
+    dialogBox.innerHTML = "";
+  }
+  overlay.addEventListener("pointerdown", function (e) {
+    if (e.target === overlay) closeDialog();
+  });
+
+  function showCalibDialog(pxLen) {
+    openDialog(
+      '<h2>Calibration segment</h2>' +
+      '<p>The segment you drew is <strong>' + pxLen.toFixed(1) +
+      ' px</strong> long. Enter its real-world length:</p>' +
+      '<div class="row"><label>Real length</label>' +
+      '<input type="number" id="calibLen" value="100" min="0.0001" step="1" autofocus>' +
+      '<span>mm</span></div>' +
+      '<div class="actions">' +
+      '<button id="calibCancel">Cancel</button>' +
+      '<button id="calibOk" class="primary">Set scale</button></div>'
+    );
+    var lenInput = document.getElementById("calibLen");
+    lenInput.focus();
+    lenInput.select();
+    document.getElementById("calibCancel").onclick = function () {
+      state.calibrating = false;
+      state.calibPoints = [];
+      render();
+      closeDialog();
+      setStatus("Calibration cancelled.");
+    };
+    function apply() {
+      var real = parseFloat(lenInput.value);
+      if (!(real > 0)) { lenInput.focus(); return; }
+      state.scale = real / pxLen;
+      document.getElementById("scaleInput").value =
+        state.scale.toPrecision(6).replace(/\.?0+$/, "");
+      state.calibrating = false;
+      state.calibPoints = [];
+      render();
+      closeDialog();
+      setStatus("Scale set: 1 px = " + state.scale.toPrecision(4) + " mm.");
+      toast("Calibrated: " + state.scale.toPrecision(4) + " mm/px");
+    }
+    document.getElementById("calibOk").onclick = apply;
+    lenInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") apply();
+    });
+  }
+
+  function showOpenDialog() {
+    if (isServed) {
+      openDialog(
+        '<h2>Open a saved sketch</h2>' +
+        '<p>Sketches saved into the destination folder:</p>' +
+        '<div class="file-list" id="fileList">' +
+        '<div class="file-item empty">Loading&hellip;</div></div>' +
+        '<p style="margin-top:12px">&hellip;or load a file from disk:</p>' +
+        '<div class="actions">' +
+        '<button id="openFromDisk">Choose file&hellip;</button>' +
+        '<button id="openCancel">Close</button></div>'
+      );
+      document.getElementById("openCancel").onclick = closeDialog;
+      document.getElementById("openFromDisk").onclick = function () {
+        document.getElementById("fileInput").click();
+      };
+      fetchFileList();
+    } else {
+      // file:// — only disk loading is possible
+      closeDialog();
+      document.getElementById("fileInput").click();
+    }
+  }
+
+  function fetchFileList() {
+    fetch("/api/list")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var list = document.getElementById("fileList");
+        if (!list) return;
+        var files = data.files || [];
+        if (files.length === 0) {
+          list.innerHTML = '<div class="file-item empty">No saved sketches yet.</div>';
+          return;
+        }
+        list.innerHTML = "";
+        files.forEach(function (name) {
+          var item = document.createElement("div");
+          item.className = "file-item";
+          item.textContent = name;
+          item.onclick = function () { loadFromServer(name); };
+          list.appendChild(item);
+        });
+      })
+      .catch(function () {
+        var list = document.getElementById("fileList");
+        if (list) list.innerHTML =
+          '<div class="file-item empty">Could not reach the server.</div>';
+      });
+  }
+
+  function loadFromServer(name) {
+    fetch("/api/load?name=" + encodeURIComponent(name))
+      .then(function (r) {
+        if (!r.ok) throw new Error("load failed");
+        return r.text();
+      })
+      .then(function (svgText) {
+        importSvgText(svgText, name);
+        closeDialog();
+      })
+      .catch(function () { toast("Could not load " + name, true); });
+  }
+
+  function showSaveDialog() {
+    var defName = "sketch-" + tstamp() + ".svg";
+    openDialog(
+      '<h2>Save sketch</h2>' +
+      '<div class="row"><label>File name</label>' +
+      '<input type="text" id="saveName" value="' + defName + '"></div>' +
+      '<p>' + (isServed
+        ? 'Saves into the Partwright destination folder.'
+        : 'Opened from file:// — this will download the SVG via the browser.') +
+      '</p>' +
+      '<div class="actions">' +
+      '<button id="saveCancel">Cancel</button>' +
+      '<button id="saveOk" class="primary">Save</button></div>'
+    );
+    var nameInput = document.getElementById("saveName");
+    nameInput.focus();
+    document.getElementById("saveCancel").onclick = closeDialog;
+    function doSave() {
+      var name = nameInput.value.trim();
+      if (!name) { nameInput.focus(); return; }
+      if (!/\.svg$/i.test(name)) name += ".svg";
+      var svgText = buildSvgDocument();
+      if (isServed) {
+        saveToServer(name, svgText);
+      } else {
+        downloadSvg(name, svgText);
+        toast("Downloaded " + name);
+      }
+      closeDialog();
+    }
+    document.getElementById("saveOk").onclick = doSave;
+    nameInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") doSave();
+    });
+  }
+
+  function saveToServer(name, svgText) {
+    fetch("/api/save?name=" + encodeURIComponent(name), {
+      method: "POST",
+      headers: { "Content-Type": "image/svg+xml" },
+      body: svgText,
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("save failed");
+        return r.json();
+      })
+      .then(function (data) {
+        toast("Saved to " + (data.path || name));
+        setStatus("Saved: " + (data.path || name));
+      })
+      .catch(function () {
+        toast("Save failed — falling back to download.", true);
+        downloadSvg(name, svgText);
+      });
+  }
+
+  function downloadSvg(name, svgText) {
+    var blob = new Blob([svgText], { type: "image/svg+xml" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    setStatus("Downloaded: " + name);
+  }
+
+  function tstamp() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
+           "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+
+  // ----------------------------------------------------------------------
+  // SVG export
+  // ----------------------------------------------------------------------
+  function geometryBounds() {
+    var allPts = [];
+    state.shapes.forEach(function (s) {
+      s.points.forEach(function (p) { allPts.push(p); });
+    });
+    state.draft.forEach(function (p) { allPts.push(p); });
+    if (allPts.length === 0) return { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    allPts.forEach(function (p) {
+      if (p[0] < minX) minX = p[0];
+      if (p[1] < minY) minY = p[1];
+      if (p[0] > maxX) maxX = p[0];
+      if (p[1] > maxY) maxY = p[1];
+    });
+    return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+  }
+
+  function buildSvgDocument() {
+    var b = geometryBounds();
+    var pad = 10;
+    var minX = b.minX - pad, minY = b.minY - pad;
+    var w = (b.maxX - b.minX) + 2 * pad;
+    var h = (b.maxY - b.minY) + 2 * pad;
+    if (w <= 0) w = 100;
+    if (h <= 0) h = 100;
+
+    var lines = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    var svgAttrs = 'xmlns="http://www.w3.org/2000/svg" ' +
+      'xmlns:partwright="https://partwright.local/ns" ' +
+      'viewBox="' + fmt(minX) + ' ' + fmt(minY) + ' ' + fmt(w) + ' ' + fmt(h) + '"';
+    if (state.mode === "precise") {
+      // express physical size: world px * scale = mm
+      svgAttrs += ' width="' + fmt(w * state.scale) + state.units + '"' +
+                  ' height="' + fmt(h * state.scale) + state.units + '"';
+    } else {
+      svgAttrs += ' width="' + fmt(w) + '" height="' + fmt(h) + '"';
+    }
+    lines.push('<svg ' + svgAttrs + '>');
+
+    // metadata block — machine-readable, lets the editor round-trip the file
+    lines.push('  <metadata>');
+    lines.push('    <partwright:sketch');
+    lines.push('        version="1"');
+    lines.push('        mode="' + state.mode + '"');
+    lines.push('        scale="' + state.scale + '"');
+    lines.push('        units="' + state.units + '"');
+    lines.push('        gridSize="' + state.gridSize + '"');
+    lines.push('        snap="' + (state.snap ? "true" : "false") + '"');
+    lines.push('        generator="Partwright sketch tool" />');
+    lines.push('  </metadata>');
+
+    // a faint title for human readers of the raw file
+    lines.push('  <desc>Partwright reference sketch (' + state.mode + ' mode).</desc>');
+
+    // shapes
+    state.shapes.forEach(function (shape, i) {
+      var pts = shape.points.map(function (p) {
+        return fmt(p[0]) + "," + fmt(p[1]);
+      }).join(" ");
+      lines.push('  <polygon partwright:role="sketch-shape" data-index="' + i + '" ' +
+        'points="' + pts + '" ' +
+        'fill="none" stroke="#1f6fd4" stroke-width="' + fmt(strokeWidth()) + '" ' +
+        'stroke-linejoin="round" />');
+    });
+
+    lines.push('</svg>');
+    return lines.join("\n") + "\n";
+  }
+
+  function strokeWidth() {
+    // keep stroke ~1mm-ish in precise mode, fixed in quick mode
+    if (state.mode === "precise" && state.scale > 0) {
+      return Math.max(0.25, 1 / state.scale);
+    }
+    return 1.5;
+  }
+
+  function fmt(n) {
+    // trim float noise
+    return parseFloat(n.toFixed(4)).toString();
+  }
+
+  // ----------------------------------------------------------------------
+  // SVG import (reopen)
+  // ----------------------------------------------------------------------
+  function importSvgText(text, sourceName) {
+    var doc;
+    try {
+      doc = new DOMParser().parseFromString(text, "image/svg+xml");
+    } catch (err) {
+      toast("Could not parse SVG.", true);
+      return;
+    }
+    var parserError = doc.querySelector("parsererror");
+    if (parserError) {
+      toast("That file is not valid SVG.", true);
+      return;
+    }
+    var root = doc.documentElement;
+    if (!root || root.nodeName.toLowerCase() !== "svg") {
+      toast("Not an SVG file.", true);
+      return;
+    }
+
+    // read Partwright metadata if present
+    var meta = doc.getElementsByTagName("partwright:sketch")[0] ||
+               doc.getElementsByTagNameNS("https://partwright.local/ns", "sketch")[0];
+    var importedShapes = [];
+
+    // collect polygons
+    var polys = root.getElementsByTagName("polygon");
+    var i, j;
+    for (i = 0; i < polys.length; i++) {
+      var ptsAttr = polys[i].getAttribute("points") || "";
+      var pts = parsePointsList(ptsAttr);
+      if (pts.length >= 3) importedShapes.push({ points: pts });
+    }
+    // also accept simple polyline / closed paths
+    var lines = root.getElementsByTagName("polyline");
+    for (i = 0; i < lines.length; i++) {
+      var lp = parsePointsList(lines[i].getAttribute("points") || "");
+      if (lp.length >= 3) importedShapes.push({ points: lp });
+    }
+    var paths = root.getElementsByTagName("path");
+    for (i = 0; i < paths.length; i++) {
+      var poly = pathToPolygon(paths[i].getAttribute("d") || "");
+      if (poly && poly.length >= 3) importedShapes.push({ points: poly });
+    }
+
+    if (importedShapes.length === 0) {
+      toast("No polygon geometry found in that SVG.", true);
+      return;
+    }
+
+    // apply metadata
+    if (meta) {
+      var m = meta.getAttribute("mode");
+      var sc = parseFloat(meta.getAttribute("scale"));
+      var u = meta.getAttribute("units");
+      var gs = parseFloat(meta.getAttribute("gridSize"));
+      var sn = meta.getAttribute("snap");
+      if (sc > 0) state.scale = sc;
+      if (u) state.units = u;
+      if (gs > 0) {
+        state.gridSize = gs;
+        document.getElementById("gridSize").value = gs;
+      }
+      if (sn === "true") {
+        state.snap = true;
+        document.getElementById("snapChk").checked = true;
+      }
+      document.getElementById("scaleInput").value = state.scale;
+      setMode(m === "precise" ? "precise" : "quick");
+    }
+
+    state.shapes = importedShapes;
+    state.draft = [];
+    pushHistory();
+    fitToContent();
+    render();
+    var label = sourceName ? (" from " + sourceName) : "";
+    setStatus("Loaded " + importedShapes.length + " shape(s)" + label + ".");
+    toast("Opened" + label);
+  }
+
+  function parsePointsList(str) {
+    var nums = str.trim().split(/[\s,]+/).map(parseFloat).filter(function (n) {
+      return !isNaN(n);
+    });
+    var pts = [];
+    for (var i = 0; i + 1 < nums.length; i += 2) {
+      pts.push([nums[i], nums[i + 1]]);
+    }
+    return pts;
+  }
+
+  // Minimal path parser: handles M/L (absolute & relative) + Z. Enough to
+  // round-trip our own exports and simple hand-made polygons.
+  function pathToPolygon(d) {
+    var tokens = d.match(/[MLZmlz]|-?\d*\.?\d+(?:e-?\d+)?/gi);
+    if (!tokens) return null;
+    var pts = [];
+    var cmd = null, cur = [0, 0], i = 0;
+    while (i < tokens.length) {
+      var tk = tokens[i];
+      if (/[MLZmlz]/.test(tk)) { cmd = tk; i++; continue; }
+      var x = parseFloat(tk);
+      if (cmd === "M" || cmd === "L") {
+        var y = parseFloat(tokens[i + 1]);
+        cur = [x, y];
+        pts.push([cur[0], cur[1]]);
+        i += 2;
+        if (cmd === "M") cmd = "L";
+      } else if (cmd === "m" || cmd === "l") {
+        var dy = parseFloat(tokens[i + 1]);
+        cur = [cur[0] + x, cur[1] + dy];
+        pts.push([cur[0], cur[1]]);
+        i += 2;
+        if (cmd === "m") cmd = "l";
+      } else {
+        i++;
+      }
+    }
+    return pts;
+  }
+
+  function fitToContent() {
+    var b = geometryBounds();
+    var pad = 40;
+    var w = svg.clientWidth, h = svg.clientHeight;
+    var gw = (b.maxX - b.minX) || 100;
+    var gh = (b.maxY - b.minY) || 100;
+    var z = Math.min((w - 2 * pad) / gw, (h - 2 * pad) / gh);
+    z = Math.max(0.05, Math.min(40, z));
+    state.zoom = z;
+    state.pan.x = (w - (b.minX + b.maxX) * z) / 2;
+    state.pan.y = (h - (b.minY + b.maxY) * z) / 2;
+  }
+
+  // ----------------------------------------------------------------------
+  // Toolbar wiring
+  // ----------------------------------------------------------------------
+  document.getElementById("modeQuick").onclick = function () { setMode("quick"); };
+  document.getElementById("modePrecise").onclick = function () { setMode("precise"); };
+  document.getElementById("undoBtn").onclick = undo;
+  document.getElementById("redoBtn").onclick = redo;
+  document.getElementById("clearBtn").onclick = function () {
+    if (state.shapes.length === 0 && state.draft.length === 0) return;
+    state.shapes = [];
+    state.draft = [];
+    pushHistory();
+    render();
+    setStatus("Canvas cleared.");
+  };
+  document.getElementById("snapChk").onchange = function (e) {
+    state.snap = e.target.checked;
+    render();
+    setStatus(state.snap ? "Snap grid on." : "Snap grid off.");
+  };
+  document.getElementById("gridSize").onchange = function (e) {
+    var v = parseFloat(e.target.value);
+    if (v > 0) { state.gridSize = v; render(); }
+  };
+  document.getElementById("zoomInBtn").onclick = function () { zoomCenter(1.25); };
+  document.getElementById("zoomOutBtn").onclick = function () { zoomCenter(1 / 1.25); };
+  document.getElementById("zoomFitBtn").onclick = function () {
+    if (state.shapes.length > 0) { fitToContent(); render(); }
+    else { resetView(); }
+  };
+  document.getElementById("calibBtn").onclick = startCalibration;
+  document.getElementById("scaleInput").onchange = function (e) {
+    var v = parseFloat(e.target.value);
+    if (v > 0) {
+      state.scale = v;
+      setStatus("Scale set: 1 px = " + v + " mm.");
+      render();
+    }
+  };
+  document.getElementById("openBtn").onclick = showOpenDialog;
+  document.getElementById("saveBtn").onclick = showSaveDialog;
+
+  document.getElementById("fileInput").onchange = function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      importSvgText(String(reader.result), file.name);
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // allow re-selecting the same file
+  };
+
+  // ----------------------------------------------------------------------
+  // Resize handling
+  // ----------------------------------------------------------------------
+  window.addEventListener("resize", render);
+
+  // ----------------------------------------------------------------------
+  // Init
+  // ----------------------------------------------------------------------
+  function init() {
+    var connBadge = document.getElementById("connBadge");
+    if (isServed) {
+      connBadge.textContent = "server";
+      connBadge.className = "badge server";
+      connBadge.title = "Served by the Partwright local server — Save writes to the dest folder.";
+    } else {
+      connBadge.textContent = "file://";
+      connBadge.className = "badge local";
+      connBadge.title = "Opened directly — Save falls back to a browser download.";
+    }
+    setMode("quick");
+    pushHistory(); // baseline empty state
+    render();
+  }
+  init();
+
+})();
+</script>
+</body>
+</html>

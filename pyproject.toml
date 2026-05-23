@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "partwright"
+version = "0.1.0"
+description = "A personal toolkit for designing 3D-printable build123d parts: a project scaffolder, a design-brief generator, and an SVG sketch tool."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Matthew Noel" }]
+
+# Partwright has ZERO third-party runtime dependencies. Everything it needs ships
+# with the Python 3.12 standard library (argparse, tomllib, string, http.server,
+# pathlib, shutil, subprocess, webbrowser).
+dependencies = []
+
+[project.scripts]
+partwright = "partwright.cli:main"
+
+[tool.setuptools]
+packages = ["partwright"]
+
+[tool.setuptools.package-data]
+# The scaffolder, brief generator, and sketch tool ship their templates and web
+# assets alongside the package so an installed `partwright` can find them.
+partwright = []
+
+[tool.black]
+target-version = ["py312"]

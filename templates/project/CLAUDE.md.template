@@ -1,0 +1,50 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+$summary_claude
+A single-file Python CLI (`generate.py`) that uses `build123d` to produce STLs.
+All geometry is parameterized via named constants at the top of `generate.py`; a
+subset is exposed via argparse — see `--help`. Default STL output, written to
+CWD, is `$default_output`.
+
+This repo was scaffolded by Partwright. The freshly generated `generate.py`
+builds a placeholder cube so the repo runs out of the box; the real part
+geometry is implemented in `build_part`.
+$build_plan_pointer
+## Coordinate system
+
+Right-handed:
+
+$coord_claude
+
+The part is centered in X and Y unless a geometry decision says otherwise. Most
+geometry decisions in `generate.py` only make sense with this convention in
+mind.
+
+## Python environment caveat
+
+The README uses `uv` because some local Homebrew Python installs have a broken
+`pyexpat` that makes `python -m venv` fail at `ensurepip`. `uv` sidesteps this
+by managing its own Python. Don't restructure `generate.py` to "work around" a
+broken interpreter — use `uv` to get a clean Python 3.12.
+
+## Code style
+
+Python is formatted with [black](https://black.readthedocs.io/) (pinned in
+`requirements-dev.txt`). Run `.venv/bin/black generate.py` after edits — black
+is the source of truth, so don't hand-align constants or wrap lines manually.
+
+## Boolean-robustness conventions
+
+OCCT booleans are flaky when an operation must resolve two coincident faces, and
+the artifacts only show up after STL export. When you add a feature that cuts or
+fuses to a face of the parent solid, give the cutter a small overshoot (a
+`_FACE_OVERLAP_MM`-style tab) so the Boolean never resolves a coincident face.
+
+## Non-obvious geometry decisions
+
+_None yet. As the part is built and re-sliced, record here any fix that deviates
+from a literal reading of the spec — what broke, and why the deviation is
+correct — so it is not reverted later._

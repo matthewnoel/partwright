@@ -1,0 +1,4 @@
+# Development-only tooling for working on Partwright itself.
+# Partwright has ZERO third-party runtime dependencies — this file holds only
+# the formatter. `black` is the formatting source of truth for partwright/.
+black==26.5.0

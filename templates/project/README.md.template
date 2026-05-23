@@ -1,0 +1,46 @@
+# $project_name
+$summary_readme
+A single-file `build123d` CLI that generates printable STLs. Scaffolded by
+Partwright.
+
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/)
+
+## Environment Setup
+
+```sh
+uv venv .venv --python 3.12
+uv pip install -r requirements.txt
+# optional requirements for code contributors
+uv pip install -r requirements-dev.txt
+```
+
+## Usage
+
+With default sizes:
+
+```sh
+.venv/bin/python generate.py
+```
+
+The freshly scaffolded `generate.py` builds a placeholder cube. Set its edge
+length with `--size`:
+
+```sh
+.venv/bin/python generate.py --size 25 --output custom_filename.stl
+```
+
+See all options:
+
+```sh
+.venv/bin/python generate.py --help
+```
+
+## Development
+
+Format the code:
+
+```sh
+.venv/bin/black *.py
+```
