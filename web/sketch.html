@@ -24,6 +24,8 @@
     --calib: #d4642f;
     --danger: #e0584e;
     --ok: #4caf7d;
+    --select: #d4642f;
+    --select-fill: rgba(212, 100, 47, 0.12);
   }
   * { box-sizing: border-box; }
   html, body {
@@ -149,6 +151,13 @@
     <h1>Print&nbsp;Lab <span class="sub">SVG Sketch</span></h1>
     <div class="toolbar">
       <div class="group">
+        <span class="group-label">Tool</span>
+        <button id="toolLasso" class="active" title="Polygon lasso">Lasso</button>
+        <button id="toolRect" title="Rectangle — drag corner to corner">Rect</button>
+        <button id="toolEllipse" title="Ellipse — drag a bounding box">Ellipse</button>
+        <button id="toolLine" title="Line — click start then end, or drag">Line</button>
+      </div>
+      <div class="group">
         <span class="group-label">Mode</span>
         <button id="modeQuick" class="active">Quick</button>
         <button id="modePrecise">Precise</button>
@@ -158,6 +167,12 @@
         <button id="undoBtn" title="Undo (Ctrl+Z)" disabled>Undo</button>
         <button id="redoBtn" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
         <button id="clearBtn" title="Clear all">Clear</button>
+      </div>
+      <div class="group">
+        <span class="group-label">Shape</span>
+        <button id="deleteBtn" title="Delete selected shape (Del)" disabled>Delete</button>
+        <button id="forwardBtn" title="Bring forward" disabled>Forward</button>
+        <button id="backwardBtn" title="Send backward" disabled>Back</button>
       </div>
       <div class="group">
         <span class="group-label">Grid</span>
@@ -215,19 +230,27 @@
   var svg = document.getElementById("canvas");
 
   var state = {
-    // Completed polygons: array of { points: [[x,y],...] }  (world/model coords, px units)
+    // Completed shapes (world/model coords, px units). Each is one of:
+    //   { type:"polygon", points: [[x,y],...] }   — the Stage-1 lasso shape
+    //   { type:"rect",    x, y, w, h }            — top-left + size (w,h >= 0)
+    //   { type:"ellipse", cx, cy, rx, ry }
+    //   { type:"line",    x1, y1, x2, y2 }
+    // A legacy shape with no `type` field is treated as a polygon (back-compat).
     shapes: [],
-    // In-progress polygon vertices (world coords)
+    // In-progress polygon vertices (world coords) — lasso tool only
     draft: [],
     // View transform: world -> screen is  screen = world * zoom + pan
     zoom: 1,
     pan: { x: 0, y: 0 },
     // Interaction
+    tool: "lasso",          // "lasso" | "rect" | "ellipse" | "line"
     mode: "quick",          // "quick" | "precise"
     snap: false,
     gridSize: 20,           // world px
     scale: 1,               // mm per world-px (precise mode)
     units: "mm",
+    // index into state.shapes of the selected shape, or -1
+    selected: -1,
     // calibration sub-mode
     calibrating: false,
     calibPoints: [],
@@ -242,6 +265,12 @@
     panStart: null,         // {x,y} screen
     panOrigin: null,        // {x,y} world pan
     dragVertex: null,       // { shapeIdx, vertexIdx } or { draft:true, vertexIdx }
+    dragHandle: null,       // { shapeIdx, handle } — resizing a primitive
+    dragShape: null,        // { shapeIdx } — moving a whole primitive
+    dragOrigin: null,       // snapshot of shape geometry at drag start
+    dragStartWorld: null,   // [x,y] world point where a move drag began
+    newShape: null,         // shape object being drawn by a click-drag tool
+    lineStart: null,        // [x,y] first click of the two-click line tool
     mouseWorld: { x: 0, y: 0 },
     movedSinceDown: false,
     pointerDownAt: null,
@@ -278,7 +307,11 @@
   // History (undo / redo)
   // ----------------------------------------------------------------------
   function snapshot() {
-    return JSON.stringify({ shapes: state.shapes, draft: state.draft });
+    return JSON.stringify({
+      shapes: state.shapes,
+      draft: state.draft,
+      selected: state.selected,
+    });
   }
   function pushHistory() {
     // drop any redo tail
@@ -296,6 +329,8 @@
     var obj = JSON.parse(snap);
     state.shapes = obj.shapes;
     state.draft = obj.draft;
+    state.selected = (typeof obj.selected === "number") ? obj.selected : -1;
+    if (state.selected >= state.shapes.length) state.selected = -1;
   }
   function undo() {
     if (state.historyIndex <= 0) return;
@@ -324,6 +359,11 @@
     return n;
   }
 
+  // The type of a shape, tolerating legacy (pre-Stage-2) untyped polygons.
+  function shapeType(shape) {
+    return shape.type || "polygon";
+  }
+
   function render() {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
@@ -334,29 +374,33 @@
 
     // --- completed shapes ---
     state.shapes.forEach(function (shape, si) {
-      var pts = shape.points.map(function (p) {
-        var s = worldToScreen(p);
-        return s.x + "," + s.y;
-      }).join(" ");
-      svg.appendChild(el("polygon", {
-        points: pts,
-        fill: "var(--shape-fill)",
-        stroke: "var(--shape-stroke)",
-        "stroke-width": "2",
-        "stroke-linejoin": "round",
-      }));
-      // vertices
-      shape.points.forEach(function (p, vi) {
-        var s = worldToScreen(p);
-        var c = el("circle", {
-          cx: s.x, cy: s.y, r: VERTEX_R,
-          fill: "var(--vertex)", stroke: "#fff", "stroke-width": "1.5",
-          "data-shape": si, "data-vertex": vi, class: "vtx",
-        });
-        c.style.cursor = "move";
-        svg.appendChild(c);
-      });
+      drawShape(shape, si);
     });
+
+    // --- selection highlight + handles (drawn on top of all shapes) ---
+    if (state.selected >= 0 && state.selected < state.shapes.length) {
+      drawSelection(state.shapes[state.selected]);
+    }
+
+    // --- shape currently being drawn by a click-drag tool ---
+    if (ui.newShape) {
+      drawShape(ui.newShape, -1, true);
+    }
+
+    // --- two-click line tool: rubber-band from first click to cursor ---
+    if (ui.lineStart) {
+      var ls = worldToScreen(ui.lineStart);
+      var lm = worldToScreen([ui.mouseWorld.x, ui.mouseWorld.y]);
+      svg.appendChild(el("line", {
+        x1: ls.x, y1: ls.y, x2: lm.x, y2: lm.y,
+        stroke: "var(--accent)", "stroke-width": "2",
+        "stroke-dasharray": "5 4", "stroke-linecap": "round",
+      }));
+      svg.appendChild(el("circle", {
+        cx: ls.x, cy: ls.y, r: VERTEX_R,
+        fill: "var(--vertex)", stroke: "#fff", "stroke-width": "1.5",
+      }));
+    }
 
     // --- in-progress draft polygon ---
     if (state.draft.length > 0) {
@@ -449,6 +493,190 @@
   }
 
   // ----------------------------------------------------------------------
+  // Per-shape rendering
+  // ----------------------------------------------------------------------
+  // Normalize a rect so w,h are non-negative (the user may drag any direction).
+  function normRect(r) {
+    var x = r.x, y = r.y, w = r.w, h = r.h;
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    return { x: x, y: y, w: w, h: h };
+  }
+
+  // Format a world-px length as a label, in mm when in precise mode.
+  function lenLabel(worldLen) {
+    if (state.mode === "precise") {
+      return (worldLen * state.scale).toFixed(1) + " " + state.units;
+    }
+    return Math.round(worldLen) + " px";
+  }
+
+  // Draw a small dimension caption at a screen point.
+  function dimText(sx, sy, txt) {
+    var t = el("text", {
+      x: sx, y: sy,
+      "font-size": "11", "font-family": "sans-serif",
+      fill: "var(--shape-stroke)", "text-anchor": "middle",
+      "paint-order": "stroke", stroke: "var(--canvas-bg)",
+      "stroke-width": "3", "stroke-linejoin": "round",
+    });
+    t.textContent = txt;
+    svg.appendChild(t);
+  }
+
+  // Draw one completed (or preview) shape. `preview` shapes are dashed and
+  // carry no interaction handles.
+  function drawShape(shape, si, preview) {
+    var type = shapeType(shape);
+    var stroke = preview ? "var(--accent)" : "var(--shape-stroke)";
+    var common = {
+      fill: type === "line" ? "none" : "var(--shape-fill)",
+      stroke: stroke,
+      "stroke-width": "2",
+      "stroke-linejoin": "round",
+    };
+    if (preview) common["stroke-dasharray"] = "5 4";
+
+    if (type === "polygon") {
+      var pts = shape.points.map(function (p) {
+        var s = worldToScreen(p);
+        return s.x + "," + s.y;
+      }).join(" ");
+      svg.appendChild(el("polygon", Object.assign({ points: pts }, common)));
+      // polygon vertices stay individually editable, exactly as in Stage 1
+      if (!preview) {
+        shape.points.forEach(function (p, vi) {
+          var s = worldToScreen(p);
+          var c = el("circle", {
+            cx: s.x, cy: s.y, r: VERTEX_R,
+            fill: "var(--vertex)", stroke: "#fff", "stroke-width": "1.5",
+            "data-shape": si, "data-vertex": vi, class: "vtx",
+          });
+          c.style.cursor = "move";
+          svg.appendChild(c);
+        });
+      }
+    } else if (type === "rect") {
+      var r = normRect(shape);
+      var tl = worldToScreen([r.x, r.y]);
+      svg.appendChild(el("rect", Object.assign({
+        x: tl.x, y: tl.y,
+        width: r.w * state.zoom, height: r.h * state.zoom,
+      }, common)));
+      if (state.mode === "precise" && !preview && r.w > 0 && r.h > 0) {
+        dimText(tl.x + r.w * state.zoom / 2, tl.y - 6, lenLabel(r.w));
+        var ry = el("text", {
+          x: tl.x - 8, y: tl.y + r.h * state.zoom / 2,
+          "font-size": "11", "font-family": "sans-serif",
+          fill: "var(--shape-stroke)", "text-anchor": "middle",
+          "paint-order": "stroke", stroke: "var(--canvas-bg)",
+          "stroke-width": "3",
+          transform: "rotate(-90 " + (tl.x - 8) + " " +
+            (tl.y + r.h * state.zoom / 2) + ")",
+        });
+        ry.textContent = lenLabel(r.h);
+        svg.appendChild(ry);
+      }
+    } else if (type === "ellipse") {
+      var c0 = worldToScreen([shape.cx, shape.cy]);
+      svg.appendChild(el("ellipse", Object.assign({
+        cx: c0.x, cy: c0.y,
+        rx: Math.abs(shape.rx) * state.zoom,
+        ry: Math.abs(shape.ry) * state.zoom,
+      }, common)));
+      if (state.mode === "precise" && !preview &&
+          Math.abs(shape.rx) > 0 && Math.abs(shape.ry) > 0) {
+        var rx = Math.abs(shape.rx), ryy = Math.abs(shape.ry);
+        if (Math.abs(rx - ryy) < 1e-6) {
+          dimText(c0.x, c0.y - ryy * state.zoom - 6,
+            "⌀ " + lenLabel(rx * 2));
+        } else {
+          dimText(c0.x, c0.y - ryy * state.zoom - 6, lenLabel(rx * 2));
+        }
+      }
+    } else if (type === "line") {
+      var a = worldToScreen([shape.x1, shape.y1]);
+      var b = worldToScreen([shape.x2, shape.y2]);
+      svg.appendChild(el("line", {
+        x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+        stroke: stroke, "stroke-width": "2", "stroke-linecap": "round",
+        "stroke-dasharray": preview ? "5 4" : "",
+      }));
+      if (state.mode === "precise" && !preview) {
+        var dx = shape.x2 - shape.x1, dy = shape.y2 - shape.y1;
+        var L = Math.sqrt(dx * dx + dy * dy);
+        if (L > 0) {
+          dimText((a.x + b.x) / 2, (a.y + b.y) / 2 - 8, lenLabel(L));
+        }
+      }
+    }
+  }
+
+  // Resize handles for a primitive, in world coords, keyed by name.
+  function shapeHandles(shape) {
+    var type = shapeType(shape);
+    if (type === "rect") {
+      var r = normRect(shape);
+      return {
+        nw: [r.x, r.y], ne: [r.x + r.w, r.y],
+        sw: [r.x, r.y + r.h], se: [r.x + r.w, r.y + r.h],
+      };
+    }
+    if (type === "ellipse") {
+      var rx = Math.abs(shape.rx), ry = Math.abs(shape.ry);
+      return {
+        nw: [shape.cx - rx, shape.cy - ry],
+        ne: [shape.cx + rx, shape.cy - ry],
+        sw: [shape.cx - rx, shape.cy + ry],
+        se: [shape.cx + rx, shape.cy + ry],
+      };
+    }
+    if (type === "line") {
+      return { p1: [shape.x1, shape.y1], p2: [shape.x2, shape.y2] };
+    }
+    return {}; // polygons use per-vertex handles, drawn by drawShape
+  }
+
+  // Draw the selection highlight and interaction handles for a shape.
+  function drawSelection(shape) {
+    var type = shapeType(shape);
+    // dashed bounding outline
+    var bb = shapeBBox(shape);
+    if (bb && type !== "polygon") {
+      var tl = worldToScreen([bb.minX, bb.minY]);
+      svg.appendChild(el("rect", {
+        x: tl.x - 3, y: tl.y - 3,
+        width: (bb.maxX - bb.minX) * state.zoom + 6,
+        height: (bb.maxY - bb.minY) * state.zoom + 6,
+        fill: "none", stroke: "var(--select)",
+        "stroke-width": "1.5", "stroke-dasharray": "4 3",
+      }));
+    } else if (bb && type === "polygon") {
+      var ptl = worldToScreen([bb.minX, bb.minY]);
+      svg.appendChild(el("rect", {
+        x: ptl.x - 4, y: ptl.y - 4,
+        width: (bb.maxX - bb.minX) * state.zoom + 8,
+        height: (bb.maxY - bb.minY) * state.zoom + 8,
+        fill: "none", stroke: "var(--select)",
+        "stroke-width": "1.5", "stroke-dasharray": "4 3",
+      }));
+    }
+    // resize handles for primitives (polygons keep their own vertex dots)
+    if (type !== "polygon") {
+      var handles = shapeHandles(shape);
+      for (var name in handles) {
+        var s = worldToScreen(handles[name]);
+        var hr = el("rect", {
+          x: s.x - 4, y: s.y - 4, width: 8, height: 8,
+          fill: "var(--select)", stroke: "#fff", "stroke-width": "1.5",
+        });
+        hr.style.cursor = "pointer";
+        svg.appendChild(hr);
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------------
   // Hit testing
   // ----------------------------------------------------------------------
   function hitVertex(screenPt) {
@@ -460,6 +688,7 @@
       if (dist(s, screenPt) <= r) return { draft: true, vertexIdx: i };
     }
     for (var si = state.shapes.length - 1; si >= 0; si--) {
+      if (shapeType(state.shapes[si]) !== "polygon") continue;
       var pts = state.shapes[si].points;
       for (var vi = pts.length - 1; vi >= 0; vi--) {
         var sp = worldToScreen(pts[vi]);
@@ -473,6 +702,131 @@
   function dist(a, b) {
     var dx = a.x - b.x, dy = a.y - b.y;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // World-coordinate bounding box of one shape (null if it has no geometry).
+  function shapeBBox(shape) {
+    var type = shapeType(shape);
+    if (type === "polygon") {
+      if (!shape.points || shape.points.length === 0) return null;
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      shape.points.forEach(function (p) {
+        if (p[0] < minX) minX = p[0];
+        if (p[1] < minY) minY = p[1];
+        if (p[0] > maxX) maxX = p[0];
+        if (p[1] > maxY) maxY = p[1];
+      });
+      return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    }
+    if (type === "rect") {
+      var r = normRect(shape);
+      return { minX: r.x, minY: r.y, maxX: r.x + r.w, maxY: r.y + r.h };
+    }
+    if (type === "ellipse") {
+      var rx = Math.abs(shape.rx), ry = Math.abs(shape.ry);
+      return {
+        minX: shape.cx - rx, minY: shape.cy - ry,
+        maxX: shape.cx + rx, maxY: shape.cy + ry,
+      };
+    }
+    if (type === "line") {
+      return {
+        minX: Math.min(shape.x1, shape.x2),
+        minY: Math.min(shape.y1, shape.y2),
+        maxX: Math.max(shape.x1, shape.x2),
+        maxY: Math.max(shape.y1, shape.y2),
+      };
+    }
+    return null;
+  }
+
+  // Distance (screen px) from screen point p to segment a-b (screen coords).
+  function distToSegment(p, a, b) {
+    var vx = b.x - a.x, vy = b.y - a.y;
+    var wx = p.x - a.x, wy = p.y - a.y;
+    var len2 = vx * vx + vy * vy;
+    var t = len2 > 0 ? (wx * vx + wy * vy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    var cx = a.x + t * vx, cy = a.y + t * vy;
+    var dx = p.x - cx, dy = p.y - cy;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Is screen point inside a polygon given as world points? (even-odd rule)
+  function pointInPolygon(screenPt, worldPts) {
+    var inside = false;
+    var n = worldPts.length, j = n - 1;
+    for (var i = 0; i < n; i++) {
+      var pi = worldToScreen(worldPts[i]);
+      var pj = worldToScreen(worldPts[j]);
+      if (((pi.y > screenPt.y) !== (pj.y > screenPt.y)) &&
+          (screenPt.x < (pj.x - pi.x) * (screenPt.y - pi.y) /
+            (pj.y - pi.y) + pi.x)) {
+        inside = !inside;
+      }
+      j = i;
+    }
+    return inside;
+  }
+
+  // Hit-test a shape body. Filled shapes hit on interior; lines on the stroke.
+  function shapeHit(shape, screenPt) {
+    var type = shapeType(shape);
+    if (type === "polygon") {
+      if (shape.points.length >= 3 &&
+          pointInPolygon(screenPt, shape.points)) return true;
+      // also hit on the outline so thin/concave polygons stay grabbable
+      for (var i = 0; i < shape.points.length; i++) {
+        var a = worldToScreen(shape.points[i]);
+        var b = worldToScreen(shape.points[(i + 1) % shape.points.length]);
+        if (distToSegment(screenPt, a, b) <= 5) return true;
+      }
+      return false;
+    }
+    if (type === "rect") {
+      var r = normRect(shape);
+      var tl = worldToScreen([r.x, r.y]);
+      var br = worldToScreen([r.x + r.w, r.y + r.h]);
+      return screenPt.x >= tl.x - 4 && screenPt.x <= br.x + 4 &&
+             screenPt.y >= tl.y - 4 && screenPt.y <= br.y + 4;
+    }
+    if (type === "ellipse") {
+      var c0 = worldToScreen([shape.cx, shape.cy]);
+      var rx = Math.abs(shape.rx) * state.zoom + 4;
+      var ry = Math.abs(shape.ry) * state.zoom + 4;
+      if (rx <= 0 || ry <= 0) return false;
+      var nx = (screenPt.x - c0.x) / rx, ny = (screenPt.y - c0.y) / ry;
+      return nx * nx + ny * ny <= 1;
+    }
+    if (type === "line") {
+      var p1 = worldToScreen([shape.x1, shape.y1]);
+      var p2 = worldToScreen([shape.x2, shape.y2]);
+      return distToSegment(screenPt, p1, p2) <= 6;
+    }
+    return false;
+  }
+
+  // Topmost shape under a screen point, or -1.
+  function hitShape(screenPt) {
+    for (var si = state.shapes.length - 1; si >= 0; si--) {
+      if (shapeHit(state.shapes[si], screenPt)) return si;
+    }
+    return -1;
+  }
+
+  // If the selected shape is a primitive, return a grabbed resize handle.
+  function hitHandle(screenPt) {
+    if (state.selected < 0) return null;
+    var shape = state.shapes[state.selected];
+    if (shapeType(shape) === "polygon") return null;
+    var handles = shapeHandles(shape);
+    for (var name in handles) {
+      var s = worldToScreen(handles[name]);
+      if (dist(s, screenPt) <= 7) {
+        return { shapeIdx: state.selected, handle: name };
+      }
+    }
+    return null;
   }
 
   // ----------------------------------------------------------------------
@@ -499,7 +853,7 @@
       setStatus("Need at least 3 vertices to close a polygon.", true);
       return;
     }
-    state.shapes.push({ points: state.draft.slice() });
+    state.shapes.push({ type: "polygon", points: state.draft.slice() });
     state.draft = [];
     pushHistory();
     render();
@@ -511,6 +865,201 @@
     state.draft = [];
     render();
     setStatus("Polygon cancelled.");
+  }
+
+  // ----------------------------------------------------------------------
+  // Tool switching & primitive creation (Stage 2)
+  // ----------------------------------------------------------------------
+  var TOOL_BTNS = {
+    lasso: "toolLasso", rect: "toolRect",
+    ellipse: "toolEllipse", line: "toolLine",
+  };
+
+  function setTool(tool) {
+    if (!TOOL_BTNS[tool]) return;
+    // leaving the lasso mid-draw abandons the in-progress polygon
+    if (state.tool === "lasso" && tool !== "lasso") cancelDraft();
+    state.tool = tool;
+    ui.lineStart = null;
+    ui.newShape = null;
+    for (var t in TOOL_BTNS) {
+      document.getElementById(TOOL_BTNS[t]).classList.toggle("active", t === tool);
+    }
+    svg.style.cursor = "crosshair";
+    if (tool === "lasso") {
+      setStatus("Lasso: click on the canvas to place polygon vertices.");
+    } else if (tool === "rect") {
+      setStatus("Rectangle: drag from one corner to the opposite corner.");
+    } else if (tool === "ellipse") {
+      setStatus("Ellipse: drag out a bounding box.");
+    } else if (tool === "line") {
+      setStatus("Line: click a start point then an end point, or drag.");
+    }
+    render();
+  }
+
+  // Build a new primitive of the active tool's type from a drag a->b (world).
+  function makePrimitive(tool, a, b) {
+    if (tool === "rect") {
+      return { type: "rect", x: a[0], y: a[1], w: b[0] - a[0], h: b[1] - a[1] };
+    }
+    if (tool === "ellipse") {
+      return {
+        type: "ellipse",
+        cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2,
+        rx: Math.abs(b[0] - a[0]) / 2, ry: Math.abs(b[1] - a[1]) / 2,
+      };
+    }
+    if (tool === "line") {
+      return { type: "line", x1: a[0], y1: a[1], x2: b[0], y2: b[1] };
+    }
+    return null;
+  }
+
+  // Is a freshly drawn primitive big enough to keep?
+  function primitiveValid(shape) {
+    var type = shapeType(shape);
+    if (type === "rect") {
+      return Math.abs(shape.w) >= 1 && Math.abs(shape.h) >= 1;
+    }
+    if (type === "ellipse") {
+      return Math.abs(shape.rx) >= 0.5 && Math.abs(shape.ry) >= 0.5;
+    }
+    if (type === "line") {
+      var dx = shape.x2 - shape.x1, dy = shape.y2 - shape.y1;
+      return Math.sqrt(dx * dx + dy * dy) >= 1;
+    }
+    return true;
+  }
+
+  // Commit a finished primitive: normalize, append, select it.
+  function commitPrimitive(shape) {
+    if (!primitiveValid(shape)) {
+      setStatus("Shape too small — try again.", true);
+      return;
+    }
+    if (shapeType(shape) === "rect") {
+      var r = normRect(shape);
+      shape.x = r.x; shape.y = r.y; shape.w = r.w; shape.h = r.h;
+    }
+    state.shapes.push(shape);
+    state.selected = state.shapes.length - 1;
+    pushHistory();
+    render();
+    setStatus(capitalize(shapeType(shape)) + " added. " +
+      state.shapes.length + " shape(s) on canvas.");
+  }
+
+  function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  // ----------------------------------------------------------------------
+  // Selection, delete, z-order (Stage 2)
+  // ----------------------------------------------------------------------
+  function selectShape(idx) {
+    state.selected = idx;
+    updateButtons();
+    render();
+    if (idx >= 0) {
+      setStatus(capitalize(shapeType(state.shapes[idx])) + " selected.");
+    }
+  }
+
+  function clearSelection() {
+    if (state.selected < 0) return;
+    state.selected = -1;
+    updateButtons();
+    render();
+  }
+
+  function deleteSelected() {
+    if (state.selected < 0 || state.selected >= state.shapes.length) return;
+    var type = shapeType(state.shapes[state.selected]);
+    state.shapes.splice(state.selected, 1);
+    state.selected = -1;
+    pushHistory();
+    updateButtons();
+    render();
+    setStatus(capitalize(type) + " deleted.");
+  }
+
+  function bringForward() {
+    var i = state.selected;
+    if (i < 0 || i >= state.shapes.length - 1) return;
+    var tmp = state.shapes[i];
+    state.shapes[i] = state.shapes[i + 1];
+    state.shapes[i + 1] = tmp;
+    state.selected = i + 1;
+    pushHistory();
+    updateButtons();
+    render();
+    setStatus("Brought forward.");
+  }
+
+  function sendBackward() {
+    var i = state.selected;
+    if (i <= 0) return;
+    var tmp = state.shapes[i];
+    state.shapes[i] = state.shapes[i - 1];
+    state.shapes[i - 1] = tmp;
+    state.selected = i - 1;
+    pushHistory();
+    updateButtons();
+    render();
+    setStatus("Sent backward.");
+  }
+
+  // ----------------------------------------------------------------------
+  // Move / resize a shape in place (Stage 2)
+  // ----------------------------------------------------------------------
+  // Translate a shape by (dx,dy) world units, writing into `target` from the
+  // unmodified geometry snapshot `origin`.
+  function translateShape(target, origin, dx, dy) {
+    var type = shapeType(target);
+    if (type === "polygon") {
+      target.points = origin.points.map(function (p) {
+        return [p[0] + dx, p[1] + dy];
+      });
+    } else if (type === "rect") {
+      target.x = origin.x + dx; target.y = origin.y + dy;
+    } else if (type === "ellipse") {
+      target.cx = origin.cx + dx; target.cy = origin.cy + dy;
+    } else if (type === "line") {
+      target.x1 = origin.x1 + dx; target.y1 = origin.y1 + dy;
+      target.x2 = origin.x2 + dx; target.y2 = origin.y2 + dy;
+    }
+  }
+
+  // Resize a primitive by dragging one of its handles to world point `wp`.
+  function resizeShape(target, origin, handle, wp) {
+    var type = shapeType(target);
+    if (type === "rect") {
+      var r = normRect(origin);
+      var x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+      if (handle === "nw") { x0 = wp[0]; y0 = wp[1]; }
+      else if (handle === "ne") { x1 = wp[0]; y0 = wp[1]; }
+      else if (handle === "sw") { x0 = wp[0]; y1 = wp[1]; }
+      else if (handle === "se") { x1 = wp[0]; y1 = wp[1]; }
+      target.x = x0; target.y = y0;
+      target.w = x1 - x0; target.h = y1 - y0;
+    } else if (type === "ellipse") {
+      // the dragged corner moves; the opposite corner stays fixed
+      var orx = Math.abs(origin.rx), ory = Math.abs(origin.ry);
+      var corners = {
+        nw: [origin.cx - orx, origin.cy - ory],
+        ne: [origin.cx + orx, origin.cy - ory],
+        sw: [origin.cx - orx, origin.cy + ory],
+        se: [origin.cx + orx, origin.cy + ory],
+      };
+      var opp = { nw: "se", ne: "sw", sw: "ne", se: "nw" }[handle];
+      var fixed = corners[opp];
+      target.cx = (wp[0] + fixed[0]) / 2;
+      target.cy = (wp[1] + fixed[1]) / 2;
+      target.rx = Math.abs(wp[0] - fixed[0]) / 2;
+      target.ry = Math.abs(wp[1] - fixed[1]) / 2;
+    } else if (type === "line") {
+      if (handle === "p1") { target.x1 = wp[0]; target.y1 = wp[1]; }
+      else if (handle === "p2") { target.x2 = wp[0]; target.y2 = wp[1]; }
+    }
   }
 
   // ----------------------------------------------------------------------
@@ -571,16 +1120,59 @@
       return;
     }
 
-    // try grabbing a vertex to drag
-    var hit = hitVertex(sp);
-    if (hit) {
-      // if it's the first draft vertex and we have >=3, treat as close on click (handled on up)
-      ui.dragVertex = hit;
+    // 1) a resize handle on the currently selected primitive wins first
+    var handle = hitHandle(sp);
+    if (handle) {
+      ui.dragHandle = handle;
+      ui.dragOrigin = JSON.parse(JSON.stringify(state.shapes[handle.shapeIdx]));
       svg.classList.add("dragging");
       return;
     }
 
-    // otherwise: place a vertex (handled on pointerup if not a drag)
+    // 2) a polygon vertex (Stage-1 editing) — only when not drawing a new shape
+    if (state.tool === "lasso" || state.draft.length === 0) {
+      var hit = hitVertex(sp);
+      if (hit) {
+        ui.dragVertex = hit;
+        svg.classList.add("dragging");
+        return;
+      }
+    }
+
+    // 3) primitive-drawing tools: begin a corner-to-corner drag
+    if (state.tool === "rect" || state.tool === "ellipse") {
+      var startW = snapWorld(worldRaw);
+      ui.newShape = makePrimitive(state.tool, startW, startW);
+      ui.dragStartWorld = startW;
+      return;
+    }
+    if (state.tool === "line") {
+      var lw = snapWorld(worldRaw);
+      if (ui.lineStart) {
+        // second click of a two-click line — finished on pointerup if no drag
+        ui.newShape = makePrimitive("line", ui.lineStart, lw);
+      } else {
+        ui.dragStartWorld = lw; // may become a drag-drawn line
+      }
+      return;
+    }
+
+    // 4) lasso tool with a shape under the cursor and nothing in progress:
+    //    select it (and prepare to move it)
+    if (state.tool === "lasso" && state.draft.length === 0) {
+      var si = hitShape(sp);
+      if (si >= 0) {
+        if (state.selected !== si) selectShape(si);
+        ui.dragShape = { shapeIdx: si };
+        ui.dragOrigin = JSON.parse(JSON.stringify(state.shapes[si]));
+        ui.dragStartWorld = worldRaw;
+        svg.classList.add("dragging");
+        return;
+      }
+    }
+
+    // 5) nothing grabbed — placing a lasso vertex / clearing selection
+    //    is resolved on pointerup if it wasn't a drag
     ui.dragVertex = null;
   });
 
@@ -615,8 +1207,56 @@
       return;
     }
 
-    // rubber band / calibration preview
-    if (state.draft.length > 0 || (state.calibrating && state.calibPoints.length === 1)) {
+    // resizing a primitive via a handle
+    if (ui.dragHandle) {
+      resizeShape(state.shapes[ui.dragHandle.shapeIdx], ui.dragOrigin,
+        ui.dragHandle.handle, snapWorld(worldRaw));
+      render();
+      return;
+    }
+
+    // moving a whole selected shape
+    if (ui.dragShape) {
+      var dx = worldRaw[0] - ui.dragStartWorld[0];
+      var dy = worldRaw[1] - ui.dragStartWorld[1];
+      if (state.snap) {
+        var g = state.gridSize;
+        dx = Math.round(dx / g) * g;
+        dy = Math.round(dy / g) * g;
+      }
+      translateShape(state.shapes[ui.dragShape.shapeIdx], ui.dragOrigin, dx, dy);
+      render();
+      return;
+    }
+
+    // drawing a new rect/ellipse by dragging
+    if (ui.newShape && ui.dragStartWorld &&
+        (state.tool === "rect" || state.tool === "ellipse")) {
+      var ns = makePrimitive(state.tool, ui.dragStartWorld, snapWorld(worldRaw));
+      ui.newShape = ns;
+      render();
+      return;
+    }
+
+    // drawing a line by dragging from the first press
+    if (state.tool === "line" && ui.dragStartWorld && !ui.lineStart &&
+        ui.movedSinceDown) {
+      ui.newShape = makePrimitive("line", ui.dragStartWorld, snapWorld(worldRaw));
+      render();
+      return;
+    }
+
+    // two-click line: refine the end point if the second click is dragged
+    if (state.tool === "line" && ui.lineStart && ui.newShape &&
+        ui.movedSinceDown) {
+      ui.newShape = makePrimitive("line", ui.lineStart, snapWorld(worldRaw));
+      render();
+      return;
+    }
+
+    // rubber band / line preview / calibration preview
+    if (state.draft.length > 0 || ui.lineStart ||
+        (state.calibrating && state.calibPoints.length === 1)) {
       render();
     }
   });
@@ -638,6 +1278,32 @@
 
     var worldRaw = screenToWorld(sp.x, sp.y);
 
+    // releasing a primitive resize-handle drag
+    if (ui.dragHandle) {
+      var rs = state.shapes[ui.dragHandle.shapeIdx];
+      if (shapeType(rs) === "rect") {
+        var rn = normRect(rs);
+        rs.x = rn.x; rs.y = rn.y; rs.w = rn.w; rs.h = rn.h;
+      }
+      if (ui.movedSinceDown) { pushHistory(); setStatus("Shape resized."); }
+      ui.dragHandle = null;
+      ui.dragOrigin = null;
+      svg.classList.remove("dragging");
+      ui.pointerDownAt = null;
+      return;
+    }
+
+    // releasing a whole-shape move drag
+    if (ui.dragShape) {
+      if (ui.movedSinceDown) { pushHistory(); setStatus("Shape moved."); }
+      ui.dragShape = null;
+      ui.dragOrigin = null;
+      ui.dragStartWorld = null;
+      svg.classList.remove("dragging");
+      ui.pointerDownAt = null;
+      return;
+    }
+
     // releasing a vertex drag
     if (ui.dragVertex) {
       if (ui.movedSinceDown) {
@@ -649,7 +1315,10 @@
         if (dv.draft && dv.vertexIdx === 0 && state.draft.length >= 3) {
           closeDraft();
         }
-        // click on existing-shape vertex with no move: no-op (select-less MVP)
+        // click on existing-shape polygon vertex with no move: select its shape
+        else if (!dv.draft) {
+          selectShape(dv.shapeIdx);
+        }
       }
       ui.dragVertex = null;
       svg.classList.remove("dragging");
@@ -657,9 +1326,53 @@
       return;
     }
 
-    // empty-space click that wasn't a pan/drag: place vertex
-    if (!ui.movedSinceDown) {
-      placeVertex(snapWorld(worldRaw));
+    // finishing a rect/ellipse drag
+    if (ui.newShape &&
+        (state.tool === "rect" || state.tool === "ellipse")) {
+      var finished = ui.newShape;
+      ui.newShape = null;
+      ui.dragStartWorld = null;
+      commitPrimitive(finished);
+      ui.pointerDownAt = null;
+      return;
+    }
+
+    // line tool — resolve the two interaction styles
+    if (state.tool === "line") {
+      if (ui.newShape) {
+        // either a completed drag-line, or the second click of a two-click line
+        var fl = ui.newShape;
+        ui.newShape = null;
+        ui.lineStart = null;
+        ui.dragStartWorld = null;
+        commitPrimitive(fl);
+      } else if (!ui.movedSinceDown) {
+        // a plain click: first point of a two-click line
+        ui.lineStart = snapWorld(worldRaw);
+        ui.dragStartWorld = null;
+        setStatus("Line: click the end point.");
+        render();
+      } else {
+        ui.dragStartWorld = null;
+      }
+      ui.pointerDownAt = null;
+      return;
+    }
+
+    // lasso tool: an empty-space click that wasn't a pan/drag
+    if (state.tool === "lasso" && !ui.movedSinceDown) {
+      if (state.draft.length > 0) {
+        placeVertex(snapWorld(worldRaw));
+      } else if (hitShape(sp) >= 0) {
+        // clicked a shape body — select it
+        selectShape(hitShape(sp));
+      } else if (state.selected >= 0) {
+        // clicked empty space — clear the selection
+        clearSelection();
+      } else {
+        // empty canvas, nothing selected — begin a polygon
+        placeVertex(snapWorld(worldRaw));
+      }
     }
     ui.pointerDownAt = null;
   });
@@ -691,15 +1404,19 @@
       return;
     }
     var shape = state.shapes[hit.shapeIdx];
+    if (shapeType(shape) !== "polygon") return; // primitives have no vertices
     if (shape.points.length <= 3) {
       // deleting would make a degenerate polygon: remove whole shape
       state.shapes.splice(hit.shapeIdx, 1);
+      if (state.selected === hit.shapeIdx) state.selected = -1;
+      else if (state.selected > hit.shapeIdx) state.selected--;
       setStatus("Shape removed (a polygon needs at least 3 vertices).");
     } else {
       shape.points.splice(hit.vertexIdx, 1);
       setStatus("Vertex deleted.");
     }
     pushHistory();
+    updateButtons();
     render();
   }
 
@@ -747,8 +1464,18 @@
         state.calibPoints = [];
         render();
         setStatus("Calibration cancelled.");
-      } else {
+      } else if (ui.lineStart || ui.newShape) {
+        // abandon an in-progress primitive
+        ui.lineStart = null;
+        ui.newShape = null;
+        ui.dragStartWorld = null;
+        render();
+        setStatus("Shape cancelled.");
+      } else if (state.draft.length > 0) {
         cancelDraft();
+      } else if (state.selected >= 0) {
+        clearSelection();
+        setStatus("Selection cleared.");
       }
       e.preventDefault();
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
@@ -756,12 +1483,26 @@
     } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" ||
                (e.key.toLowerCase() === "z" && e.shiftKey))) {
       redo(); e.preventDefault();
-    } else if ((e.key === "Delete" || e.key === "Backspace") && state.draft.length > 0) {
-      // delete last placed draft vertex
-      state.draft.pop();
-      render();
-      setStatus("Last vertex removed.");
-      e.preventDefault();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      if (state.draft.length > 0) {
+        // delete last placed draft vertex (Stage-1 behaviour)
+        state.draft.pop();
+        render();
+        setStatus("Last vertex removed.");
+        e.preventDefault();
+      } else if (state.selected >= 0) {
+        // delete the selected shape (Stage-2)
+        deleteSelected();
+        e.preventDefault();
+      }
+    } else if (e.key === "v" || e.key === "V") {
+      setTool("lasso"); e.preventDefault();
+    } else if (e.key === "r" || e.key === "R") {
+      setTool("rect"); e.preventDefault();
+    } else if (e.key === "o" || e.key === "O") {
+      setTool("ellipse"); e.preventDefault();
+    } else if (e.key === "l" || e.key === "L") {
+      setTool("line"); e.preventDefault();
     }
   });
 
@@ -796,6 +1537,12 @@
     document.getElementById("undoBtn").disabled = state.historyIndex <= 0;
     document.getElementById("redoBtn").disabled =
       state.historyIndex >= state.history.length - 1;
+    var hasSel = state.selected >= 0 && state.selected < state.shapes.length;
+    document.getElementById("deleteBtn").disabled = !hasSel;
+    document.getElementById("forwardBtn").disabled =
+      !hasSel || state.selected >= state.shapes.length - 1;
+    document.getElementById("backwardBtn").disabled =
+      !hasSel || state.selected <= 0;
   }
 
   // ----------------------------------------------------------------------
@@ -1025,19 +1772,21 @@
   // SVG export
   // ----------------------------------------------------------------------
   function geometryBounds() {
-    var allPts = [];
-    state.shapes.forEach(function (s) {
-      s.points.forEach(function (p) { allPts.push(p); });
-    });
-    state.draft.forEach(function (p) { allPts.push(p); });
-    if (allPts.length === 0) return { minX: 0, minY: 0, maxX: 100, maxY: 100 };
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    allPts.forEach(function (p) {
-      if (p[0] < minX) minX = p[0];
-      if (p[1] < minY) minY = p[1];
-      if (p[0] > maxX) maxX = p[0];
-      if (p[1] > maxY) maxY = p[1];
-    });
+    var any = false;
+    function eat(bb) {
+      if (!bb) return;
+      any = true;
+      if (bb.minX < minX) minX = bb.minX;
+      if (bb.minY < minY) minY = bb.minY;
+      if (bb.maxX > maxX) maxX = bb.maxX;
+      if (bb.maxY > maxY) maxY = bb.maxY;
+    }
+    state.shapes.forEach(function (s) { eat(shapeBBox(s)); });
+    if (state.draft.length > 0) {
+      eat(shapeBBox({ type: "polygon", points: state.draft }));
+    }
+    if (!any) return { minX: 0, minY: 0, maxX: 100, maxY: 100 };
     return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
   }
 
@@ -1079,15 +1828,37 @@
     // a faint title for human readers of the raw file
     lines.push('  <desc>Partwright reference sketch (' + state.mode + ' mode).</desc>');
 
-    // shapes
+    // shapes — each primitive exports as its native SVG element
+    var sw = fmt(strokeWidth());
     state.shapes.forEach(function (shape, i) {
-      var pts = shape.points.map(function (p) {
-        return fmt(p[0]) + "," + fmt(p[1]);
-      }).join(" ");
-      lines.push('  <polygon partwright:role="sketch-shape" data-index="' + i + '" ' +
-        'points="' + pts + '" ' +
-        'fill="none" stroke="#1f6fd4" stroke-width="' + fmt(strokeWidth()) + '" ' +
-        'stroke-linejoin="round" />');
+      var type = shapeType(shape);
+      var base = 'partwright:role="sketch-shape" data-index="' + i + '" ' +
+        'stroke="#1f6fd4" stroke-width="' + sw + '"';
+      if (type === "polygon") {
+        var pts = shape.points.map(function (p) {
+          return fmt(p[0]) + "," + fmt(p[1]);
+        }).join(" ");
+        lines.push('  <polygon ' + base + ' points="' + pts + '" ' +
+          'fill="none" stroke-linejoin="round" />');
+      } else if (type === "rect") {
+        var r = normRect(shape);
+        lines.push('  <rect ' + base + ' x="' + fmt(r.x) + '" y="' + fmt(r.y) +
+          '" width="' + fmt(r.w) + '" height="' + fmt(r.h) + '" fill="none" />');
+      } else if (type === "ellipse") {
+        var rx = Math.abs(shape.rx), ry = Math.abs(shape.ry);
+        if (Math.abs(rx - ry) < 1e-9) {
+          lines.push('  <circle ' + base + ' cx="' + fmt(shape.cx) +
+            '" cy="' + fmt(shape.cy) + '" r="' + fmt(rx) + '" fill="none" />');
+        } else {
+          lines.push('  <ellipse ' + base + ' cx="' + fmt(shape.cx) +
+            '" cy="' + fmt(shape.cy) + '" rx="' + fmt(rx) +
+            '" ry="' + fmt(ry) + '" fill="none" />');
+        }
+      } else if (type === "line") {
+        lines.push('  <line ' + base + ' x1="' + fmt(shape.x1) +
+          '" y1="' + fmt(shape.y1) + '" x2="' + fmt(shape.x2) +
+          '" y2="' + fmt(shape.y2) + '" stroke-linecap="round" />');
+      }
     });
 
     lines.push('</svg>');
@@ -1134,28 +1905,80 @@
                doc.getElementsByTagNameNS("https://partwright.local/ns", "sketch")[0];
     var importedShapes = [];
 
-    // collect polygons
-    var polys = root.getElementsByTagName("polygon");
-    var i, j;
-    for (i = 0; i < polys.length; i++) {
-      var ptsAttr = polys[i].getAttribute("points") || "";
-      var pts = parsePointsList(ptsAttr);
-      if (pts.length >= 3) importedShapes.push({ points: pts });
+    // Walk the document in order so a Stage-2 export keeps its z-order, and
+    // mixed polygon + primitive drawings round-trip faithfully. Each drawable
+    // element maps to one Stage-2 shape object.
+    function num(elm, attr) {
+      var v = parseFloat(elm.getAttribute(attr));
+      return isNaN(v) ? 0 : v;
     }
-    // also accept simple polyline / closed paths
-    var lines = root.getElementsByTagName("polyline");
-    for (i = 0; i < lines.length; i++) {
-      var lp = parsePointsList(lines[i].getAttribute("points") || "");
-      if (lp.length >= 3) importedShapes.push({ points: lp });
+    function walk(node) {
+      for (var c = node.firstElementChild; c; c = c.nextElementSibling) {
+        var tag = c.nodeName.toLowerCase();
+        if (tag === "polygon") {
+          var pp = parsePointsList(c.getAttribute("points") || "");
+          if (pp.length >= 3) {
+            importedShapes.push({ type: "polygon", points: pp });
+          }
+        } else if (tag === "polyline") {
+          var lp = parsePointsList(c.getAttribute("points") || "");
+          if (lp.length >= 3) {
+            importedShapes.push({ type: "polygon", points: lp });
+          } else if (lp.length === 2) {
+            importedShapes.push({
+              type: "line",
+              x1: lp[0][0], y1: lp[0][1], x2: lp[1][0], y2: lp[1][1],
+            });
+          }
+        } else if (tag === "path") {
+          var poly = pathToPolygon(c.getAttribute("d") || "");
+          if (poly && poly.length >= 3) {
+            importedShapes.push({ type: "polygon", points: poly });
+          } else if (poly && poly.length === 2) {
+            importedShapes.push({
+              type: "line",
+              x1: poly[0][0], y1: poly[0][1], x2: poly[1][0], y2: poly[1][1],
+            });
+          }
+        } else if (tag === "rect") {
+          var rw = num(c, "width"), rh = num(c, "height");
+          if (rw > 0 && rh > 0) {
+            importedShapes.push({
+              type: "rect", x: num(c, "x"), y: num(c, "y"), w: rw, h: rh,
+            });
+          }
+        } else if (tag === "circle") {
+          var cr = num(c, "r");
+          if (cr > 0) {
+            importedShapes.push({
+              type: "ellipse",
+              cx: num(c, "cx"), cy: num(c, "cy"), rx: cr, ry: cr,
+            });
+          }
+        } else if (tag === "ellipse") {
+          var erx = num(c, "rx"), ery = num(c, "ry");
+          if (erx > 0 && ery > 0) {
+            importedShapes.push({
+              type: "ellipse",
+              cx: num(c, "cx"), cy: num(c, "cy"), rx: erx, ry: ery,
+            });
+          }
+        } else if (tag === "line") {
+          importedShapes.push({
+            type: "line",
+            x1: num(c, "x1"), y1: num(c, "y1"),
+            x2: num(c, "x2"), y2: num(c, "y2"),
+          });
+        } else if (tag === "g" || tag === "svg" || tag === "a") {
+          // recurse into grouping containers
+          walk(c);
+        }
+      }
     }
-    var paths = root.getElementsByTagName("path");
-    for (i = 0; i < paths.length; i++) {
-      var poly = pathToPolygon(paths[i].getAttribute("d") || "");
-      if (poly && poly.length >= 3) importedShapes.push({ points: poly });
-    }
+    walk(root);
 
     if (importedShapes.length === 0) {
-      toast("No polygon geometry found in that SVG.", true);
+      toast("No drawable geometry found in that SVG.", true);
       return;
     }
 
@@ -1182,7 +2005,11 @@
 
     state.shapes = importedShapes;
     state.draft = [];
+    state.selected = -1;
+    ui.lineStart = null;
+    ui.newShape = null;
     pushHistory();
+    updateButtons();
     fitToContent();
     render();
     var label = sourceName ? (" from " + sourceName) : "";
@@ -1247,6 +2074,13 @@
   // ----------------------------------------------------------------------
   // Toolbar wiring
   // ----------------------------------------------------------------------
+  document.getElementById("toolLasso").onclick = function () { setTool("lasso"); };
+  document.getElementById("toolRect").onclick = function () { setTool("rect"); };
+  document.getElementById("toolEllipse").onclick = function () { setTool("ellipse"); };
+  document.getElementById("toolLine").onclick = function () { setTool("line"); };
+  document.getElementById("deleteBtn").onclick = deleteSelected;
+  document.getElementById("forwardBtn").onclick = bringForward;
+  document.getElementById("backwardBtn").onclick = sendBackward;
   document.getElementById("modeQuick").onclick = function () { setMode("quick"); };
   document.getElementById("modePrecise").onclick = function () { setMode("precise"); };
   document.getElementById("undoBtn").onclick = undo;
@@ -1255,7 +2089,11 @@
     if (state.shapes.length === 0 && state.draft.length === 0) return;
     state.shapes = [];
     state.draft = [];
+    state.selected = -1;
+    ui.lineStart = null;
+    ui.newShape = null;
     pushHistory();
+    updateButtons();
     render();
     setStatus("Canvas cleared.");
   };
