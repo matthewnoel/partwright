@@ -21,6 +21,26 @@ Three subcommands, one per stage of the design workflow:
 - `partwright new` — scaffold a fresh, standalone `build123d` part repository,
   optionally seeded from a filled design brief.
 
+## Recommended working model
+
+The commands chain into one low-friction loop; each stage hands a concrete
+artifact to the next:
+
+```
+partwright sketch    →  draw design intent            →  reference SVGs
+partwright brief     →  interview in a Claude chat     →  DESIGN_BRIEF.md + BUILD_PLAN.md
+partwright new       →  scaffold the repo (sketches copied into reference/)
+open in Claude Code  →  implement build_part → generate.py → preview.py
+                        → read preview.png → show you → iterate   (the visual loop)
+Bambu Studio         →  slice & physically verify
+```
+
+The thing that makes this low-friction is the **visual loop**: the generated repo
+renders a multi-view `preview.png` of its own geometry, so Claude verifies the
+shape visually — and shows it to you — before you ever open a slicer. Reference
+drawings in `reference/` and the structured brief keep design intent flowing
+through every stage, so the part is rarely described in prose alone.
+
 ## Requirements
 
 - Python 3.12 (Partwright uses the standard-library `tomllib`, which needs

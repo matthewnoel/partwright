@@ -97,4 +97,9 @@ def run(args: argparse.Namespace) -> int:
         "DESIGN_INTERVIEW.md and attach the sketches."
     )
     print("  3. Claude interviews you and fills in DESIGN_BRIEF.md and BUILD_PLAN.md.")
+    print(
+        f"  4. Scaffold the repo:  partwright new {idea_name} "
+        f"--brief {workspace / 'DESIGN_BRIEF.md'}"
+    )
+    print("     (sketches in this workspace are copied into the repo's reference/).")
     return 0

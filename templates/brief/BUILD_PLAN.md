@@ -89,11 +89,16 @@ to mm, as `phone-centipede` does.>
 - `generate.py` — the single-file CLI: shebang, module docstring (with the
   coordinate system), named-constants block, geometry-helpers section,
   assembly section, `argparse` CLI, `main()`.
-- `CLAUDE.md` — guidance: "What this is", coordinate system, Python-env caveat,
-  `black` code style, boolean-robustness conventions, a "non-obvious geometry
-  decisions" section to grow over time, and a pointer to this `BUILD_PLAN.md`.
-- `README.md`, `requirements.txt` (`build123d==0.9.1`), `requirements-dev.txt`,
-  `.gitignore`, `.claude/settings.local.json` — standard scaffolded files.
+- `preview.py` — headless matplotlib renderer; writes a multi-view `preview.png`
+  of `build_part` for in-loop visual checks. Keep it working as geometry evolves
+  (it calls `build_part()` with no arguments).
+- `CLAUDE.md` — guidance: "What this is", the visual verification loop,
+  coordinate system, Python-env caveat, `black` code style, boolean-robustness
+  conventions, a "non-obvious geometry decisions" section to grow over time, and
+  a pointer to this `BUILD_PLAN.md`.
+- `README.md`, `requirements.txt` (`build123d`, `matplotlib`),
+  `requirements-dev.txt`, `.gitignore`, `.claude/settings.local.json`,
+  `reference/` — standard scaffolded files.
 - <any extra module, e.g. a known-model lookup table — only if the plan calls
   for one.>
 
@@ -103,10 +108,13 @@ to mm, as `phone-centipede` does.>
 2. <each `--component` invocation writes its expected STL.>
 3. **Bounding-box check**, default parameters — the cheap sanity check:
    - <component>: X <value> mm, Y <value> mm, Z <value> mm.
-4. `black generate.py` leaves the file unchanged.
-5. Slice the STL(s) in Bambu Studio; confirm the printed orientation needs no
+4. **Render & visually verify.** `preview.py` writes `preview.png`; read it and
+   confirm the multi-view matches this plan (shape, orientation, feature
+   placement) before slicing.
+5. `black generate.py preview.py` leaves the files unchanged.
+6. Slice the STL(s) in Bambu Studio; confirm the printed orientation needs no
    supports.
-6. <any physical fit check: print pieces, confirm they assemble; tune the
+7. <any physical fit check: print pieces, confirm they assemble; tune the
    CLI fit flag and reprint if needed.>
 
 ## Boolean-robustness conventions

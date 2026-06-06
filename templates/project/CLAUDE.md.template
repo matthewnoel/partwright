@@ -13,6 +13,29 @@ This repo was scaffolded by Partwright. The freshly generated `generate.py`
 builds a placeholder cube so the repo runs out of the box; the real part
 geometry is implemented in `build_part`.
 $build_plan_pointer
+## Visual verification loop
+
+This repo can render itself, so **verify geometry visually before declaring a
+change done, and show the user the rendered preview.** For every geometry change:
+
+1. Read `BUILD_PLAN.md` and `DESIGN_BRIEF.md` for the intended geometry, and
+   check `reference/` for sketches (see below).
+2. Implement or edit `build_part` in `generate.py`.
+3. Run `.venv/bin/python generate.py` — exports the STL and surfaces build errors.
+4. Run `.venv/bin/python preview.py` — renders `preview.png`, a 2x2 contact sheet
+   (isometric, top, front, right).
+5. **`Read` `preview.png`** and check it against the plan: right overall shape,
+   +Z up, floor on z = 0, centered in X/Y, features placed correctly, no gaps
+   from Boolean issues.
+6. If it is wrong, fix `build_part` and repeat from step 3. If it is right,
+   **show the user `preview.png`** and summarize what changed.
+
+`preview.py` imports `build_part` from `generate.py` and calls it with no
+arguments, so **`build_part` must always be callable with no arguments** (every
+parameter keeps a default). The renderer is installed by
+`uv pip install -r requirements.txt`. For a multi-component part, extend
+`preview.py` to render each component (loop over them, or fuse for a combined view).
+
 ## Coordinate system
 
 Right-handed:
@@ -42,6 +65,14 @@ OCCT booleans are flaky when an operation must resolve two coincident faces, and
 the artifacts only show up after STL export. When you add a feature that cuts or
 fuses to a face of the parent solid, give the cutter a small overshoot (a
 `_FACE_OVERLAP_MM`-style tab) so the Boolean never resolves a coincident face.
+
+## Reference sketches
+
+The `reference/` folder holds design-intent drawings — SVGs from
+`partwright sketch` and reference photos. **Look there before implementing
+geometry** and reconcile `build_part` against what you find. Precise-mode SVGs
+carry a real millimeter scale in their metadata; treat those dimensions as
+authoritative.
 
 ## Non-obvious geometry decisions
 

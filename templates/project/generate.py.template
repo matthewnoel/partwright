@@ -37,12 +37,15 @@ DEFAULT_OUTPUT = "$default_output"
 # ----------------------------------------------------------------------------
 
 
-def build_part(*, size: float):
+def build_part(*, size: float = CUBE_SIZE_MM):
     """Build the part solid.
 
     Placeholder geometry: a cube of edge length `size`, sitting on the build
     plate (z = 0). Replace this body with the real part; the seeded constants
     above are ready to wire in.
+
+    Keep `build_part` callable with no arguments (every parameter defaulted) so
+    the repo runs out of the box and `preview.py` can render it.
     """
     return Box(size, size, size).translate((0, 0, size / 2))
 

@@ -121,10 +121,12 @@ A new part idea flows through Partwright like this:
    and `BUILD_PLAN.md` (the *how* — the handoff for the build agent).
 3. **Scaffold.** `partwright new <name> --brief <path>` stamps a fresh,
    standalone part repo, seeded from the brief, with `BUILD_PLAN.md` and
-   `DESIGN_BRIEF.md` copied in so the repo carries its own plan.
+   `DESIGN_BRIEF.md` copied in so the repo carries its own plan, and the idea
+   workspace's reference sketches copied into the repo's `reference/`.
 4. **Build.** Matthew opens the new repo as a fresh Claude project. Its
    `CLAUDE.md` points the agent at `BUILD_PLAN.md`, and the agent implements
-   `generate.py`.
+   `generate.py` — rendering `preview.py` and visually verifying `preview.png`
+   before declaring a build step done.
 5. **Iterate.** Slice in Bambu Studio, refine, and record any non-obvious fixes
    in the repo's `CLAUDE.md`.
 
@@ -160,12 +162,14 @@ partwright new <project-name> [--dest DIR] [--brief FILE] [--no-git]
 | File | Purpose |
 | --- | --- |
 | `generate.py` | Skeleton single-file CLI: shebang, module docstring with the coordinate-system convention, constants block, geometry-helpers section, assembly section, `argparse` CLI, `main()`. Builds a 10 mm × 10 mm × 10 mm cube — sized by a named constant and exposed via a `--size` flag — so it runs out of the box and demonstrates the constants-plus-argparse pattern. |
+| `preview.py` | Headless matplotlib renderer: tessellates `build_part` and writes a multi-view `preview.png` (isometric, top, front, right) for in-loop visual verification — Claude reads it to self-check, and it gives a glanceable draft before slicing. Reuses `build_part`, called with no arguments. |
 | `CLAUDE.md` | Templated guidance: "What this is", coordinate system, Python-env caveat, code style (`black`), boolean-robustness conventions, and an empty "non-obvious geometry decisions" section to grow over time. When a brief is supplied, also carries a pointer line directing any build agent to `BUILD_PLAN.md`. |
 | `README.md` | Prerequisites (`uv`), environment setup, usage, development. |
-| `requirements.txt` | `build123d` pinned (0.9.1). |
+| `requirements.txt` | `build123d` pinned (0.9.1) plus `matplotlib` for `preview.py`; `numpy` arrives transitively via build123d. |
 | `requirements-dev.txt` | `-r requirements.txt` plus pinned `black`. |
-| `.gitignore` | `.venv/`, `__pycache__/`, `*.pyc`, `*.stl`. |
+| `.gitignore` | `.venv/`, `__pycache__/`, `*.pyc`, `*.stl`, `preview*.png`. |
 | `.claude/settings.local.json` | Permission allowlist for running the project's venv Python, adapted from the `phone-centipede` exemplar's file. |
+| `reference/` | Folder for design-intent drawings — reference SVGs (from `partwright sketch`) and photos. Seeded with a README; with `--brief`, sketches from the idea workspace are copied in. |
 | `BUILD_PLAN.md` | _(only with `--brief`)_ Copied from the idea workspace — the implementation handoff the step-2 build agent works from. |
 | `DESIGN_BRIEF.md` | _(only with `--brief`)_ Copied from the idea workspace — the design record (the *what*) kept with the repo for reference. |
 

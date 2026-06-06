@@ -37,6 +37,27 @@ See all options:
 .venv/bin/python generate.py --help
 ```
 
+## Visual preview
+
+Render a multi-view PNG of the current geometry without opening a slicer:
+
+```sh
+.venv/bin/python preview.py
+```
+
+This writes `preview.png`, a 2×2 contact sheet (isometric, top, front, right).
+Tune mesh fineness with `--tolerance` (smaller = finer) and resolution with
+`--dpi`. The renderer ships in `requirements.txt`, so it works after the standard
+setup above.
+
+## Working with Claude
+
+Open this folder in Claude Code. `CLAUDE.md` tells the agent to implement
+`build_part`, regenerate the STL, render `preview.py`, and visually verify
+`preview.png` before declaring a change done. Put reference drawings — SVGs from
+`partwright sketch`, photos — in `reference/` so the agent can see your design
+intent.
+
 ## Development
 
 Format the code:
