@@ -12,6 +12,7 @@ Standard library only: `string.Template` for placeholder substitution,
 from __future__ import annotations
 
 import argparse
+import shutil
 import string
 import subprocess
 import sys
@@ -29,8 +30,10 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates" / "project"
 # listed explicitly.
 _FILE_MAP = {
     "generate.py.template": "generate.py",
+    "preview.py.template": "preview.py",
     "CLAUDE.md.template": "CLAUDE.md",
     "README.md.template": "README.md",
+    "reference_README.md.template": "reference/README.md",
     "requirements.txt.template": "requirements.txt",
     "requirements-dev.txt.template": "requirements-dev.txt",
     "gitignore.template": ".gitignore",
@@ -410,6 +413,7 @@ def run(args: argparse.Namespace) -> int:
     brief: dict | None = None
     brief_path: Path | None = None
     build_plan_path: Path | None = None
+    copied_sketches = 0
     if args.brief is not None:
         brief_path = Path(args.brief).expanduser()
         if not brief_path.is_file():
@@ -463,6 +467,19 @@ def run(args: argparse.Namespace) -> int:
             (repo_dir / "BUILD_PLAN.md").write_text(
                 build_plan_path.read_text(encoding="utf-8"), encoding="utf-8"
             )
+
+        # --- Copy reference sketches from the idea workspace --------------
+        # The brief's sibling `sketches/` (populated by `partwright sketch`)
+        # carries the SVGs into the repo's `reference/` so the build agent can
+        # see the design intent without a manual file handoff.
+        if brief_path is not None:
+            sketches_src = brief_path.parent / "sketches"
+            if sketches_src.is_dir():
+                reference_dir = repo_dir / "reference"
+                reference_dir.mkdir(parents=True, exist_ok=True)
+                for svg in sorted(sketches_src.glob("*.svg")):
+                    shutil.copyfile(svg, reference_dir / svg.name)
+                    copied_sketches += 1
     except OSError as exc:
         print(f"error: failed to write the new repo: {exc}", file=sys.stderr)
         return 1
@@ -510,7 +527,21 @@ def run(args: argparse.Namespace) -> int:
             print("  BUILD_PLAN.md      : copied into the repo")
         print("  DESIGN_BRIEF.md    : copied into the repo")
     print(f"  git initialized    : {git_initialized}")
+    if copied_sketches:
+        suffix = "" if copied_sketches == 1 else "es"
+        print(f"  Reference sketches : {copied_sketches} sketch{suffix} -> reference/")
     print()
-    print(f"Next: cd {repo_dir} && uv venv .venv --python 3.12")
+    print("Next steps:")
+    print(f"  1. cd {repo_dir}")
+    print("  2. uv venv .venv --python 3.12")
+    print("     uv pip install -r requirements.txt    # build123d + preview deps")
+    print("  3. Sanity-check the skeleton:")
+    print("       .venv/bin/python generate.py        # writes the STL")
+    print("       .venv/bin/python preview.py         # writes preview.png")
+    print("  4. Open this folder in Claude Code; its CLAUDE.md drives the loop:")
+    print("       implement build_part -> generate.py -> preview.py ->")
+    print("       read preview.png -> iterate.")
+    print("  5. Add design intent: drop SVGs/photos in reference/, or run")
+    print(f"       partwright sketch --dest {repo_dir / 'reference'}")
 
     return 0

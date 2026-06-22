@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Render a multi-view PNG preview of $project_name.
+
+A quick visual check of `build_part`'s geometry without opening a slicer:
+tessellates the solid and renders a 2x2 contact sheet (isometric, top, front,
+right) to `preview.png`. Runs headless (matplotlib Agg backend), so it works
+over SSH or inside a coding agent with no display attached.
+
+This is a rough geometric check, not a photoreal render: matplotlib's 3D axes
+use a painter's algorithm with no depth buffer, so on concave parts a face may
+occasionally poke through. Use it to confirm overall shape, orientation
+(+Z up, floor on z = 0), centering, and feature placement — then slice in
+Bambu Studio for the real verification.
+
+Reuses `build_part` from generate.py, called with NO arguments, so every
+parameter of `build_part` must keep a default (which is also what lets the repo
+run out of the box).
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")  # headless raster backend; MUST precede the pyplot import
+
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection  # noqa: E402
+
+from generate import build_part  # noqa: E402
+
+DEFAULT_OUTPUT = "preview.png"
+DEFAULT_TOLERANCE_MM = 0.2  # mesh linear deflection; smaller is finer but slower
+DEFAULT_DPI = 110
+
+# (name, elevation, azimuth, flat_axis) per panel. The three orthographic views
+# align with the coordinate axes so they read as standard top / front / right
+# elevations; `flat_axis` is the depth axis to hide on each (None for isometric).
+_VIEWS = (
+    ("isometric", 30, -60, None),
+    ("top (+Z)", 90, -90, "z"),
+    ("front (-Y)", 0, -90, "y"),
+    ("right (+X)", 0, 0, "x"),
+)
+
+# Light direction for the cheap diffuse shading that gives the faces depth.
+_LIGHT = np.array([0.3, 0.4, 0.85])
+
+
+def _triangles(tolerance: float) -> np.ndarray:
+    """Tessellate `build_part()` into an (n, 3, 3) array of triangle vertices."""
+    solid = build_part()
+    vertices, faces = solid.tessellate(tolerance)
+    points = np.array([(v.X, v.Y, v.Z) for v in vertices])
+    return points[np.array(faces, dtype=int)]
+
+
+def _face_shading(triangles: np.ndarray) -> np.ndarray:
+    """Return an (n, 4) RGBA array — one grey per face by |normal . light|."""
+    normals = np.cross(
+        triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    )
+    lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = normals / np.where(lengths == 0, 1.0, lengths)
+    light = _LIGHT / np.linalg.norm(_LIGHT)
+    brightness = 0.35 + 0.65 * np.clip(np.abs(normals @ light), 0.0, 1.0)
+    return np.column_stack(
+        [brightness, brightness, brightness, np.ones_like(brightness)]
+    )
+
+
+def render(output: Path, tolerance: float, dpi: int) -> None:
+    """Render the 2x2 multi-view contact sheet to `output`."""
+    triangles = _triangles(tolerance)
+    colors = _face_shading(triangles)
+
+    points = triangles.reshape(-1, 3)
+    center = (points.min(axis=0) + points.max(axis=0)) / 2
+    half = (points.max(axis=0) - points.min(axis=0)).max() / 2 * 1.1 or 1.0
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw={"projection": "3d"})
+    for ax, (name, elev, azim, flat) in zip(axes.flat, _VIEWS):
+        mesh = Poly3DCollection(
+            triangles,
+            facecolors=colors,
+            edgecolors=(0, 0, 0, 0.15),
+            linewidths=0.2,
+        )
+        ax.add_collection3d(mesh)
+        ax.set_proj_type("ortho")  # true orthographic so dimensions read true
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_xlim(center[0] - half, center[0] + half)
+        ax.set_ylim(center[1] - half, center[1] + half)
+        ax.set_zlim(center[2] - half, center[2] + half)
+        ax.set_box_aspect((1, 1, 1))  # equal scale; a cube must look like a cube
+        ax.set_title(name)
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        # On a flat-on elevation the depth axis collapses to a line; hide its
+        # ticks and label so they do not pile up at the panel edge.
+        if flat == "x":
+            ax.set_xticklabels([])
+            ax.set_xlabel("")
+        elif flat == "y":
+            ax.set_yticklabels([])
+            ax.set_ylabel("")
+        elif flat == "z":
+            ax.set_zticklabels([])
+            ax.set_zlabel("")
+
+    fig.suptitle("$project_name preview", fontsize=14)
+    fig.savefig(output, dpi=dpi)
+    plt.close(fig)
+
+
+def _parse_args():
+    p = argparse.ArgumentParser(
+        description="Render a multi-view PNG preview of $project_name.",
+    )
+    p.add_argument(
+        "--output",
+        type=Path,
+        default=Path(DEFAULT_OUTPUT),
+        metavar="PATH",
+        help=f"PNG output path. Default: {DEFAULT_OUTPUT}.",
+    )
+    p.add_argument(
+        "--tolerance",
+        type=float,
+        default=DEFAULT_TOLERANCE_MM,
+        metavar="MM",
+        help=(
+            "Mesh linear deflection in mm; smaller is finer but slower. "
+            f"Default: {DEFAULT_TOLERANCE_MM}."
+        ),
+    )
+    p.add_argument(
+        "--dpi",
+        type=int,
+        default=DEFAULT_DPI,
+        metavar="DPI",
+        help=f"Output resolution in dots per inch. Default: {DEFAULT_DPI}.",
+    )
+    return p.parse_args()
+
+
+def main():
+    args = _parse_args()
+    render(args.output, args.tolerance, args.dpi)
+    print(f"Wrote preview: {args.output}")
+
+
+if __name__ == "__main__":
+    main()

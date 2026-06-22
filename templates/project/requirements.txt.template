@@ -1,1 +1,4 @@
 build123d==0.9.1
+# For preview.py's headless multi-view render. generate.py itself needs only
+# build123d; numpy arrives transitively via build123d.
+matplotlib==3.10.3
