@@ -19,6 +19,10 @@ from pathlib import Path
 from build123d import Box, export_stl
 
 # === Part geometry ==========================================================
+# To implement the real part: replace everything marked
+# "PLACEHOLDER (remove when implementing build_part)" below and wire in the
+# seeded constants. Grep this file for "PLACEHOLDER" to find every spot.
+# PLACEHOLDER (remove when implementing build_part): the cube edge length.
 CUBE_SIZE_MM = $cube_size_default  # edge length of the placeholder cube
 $seeded_constants
 DEFAULT_OUTPUT = "$default_output"
@@ -37,15 +41,16 @@ DEFAULT_OUTPUT = "$default_output"
 # ----------------------------------------------------------------------------
 
 
+# PLACEHOLDER (remove when implementing build_part): the entire function below
+# is placeholder cube geometry. Replace its signature and body with the real
+# part; keep it callable with no arguments (every parameter defaulted) so the
+# repo runs out of the box and `preview.py` can render it.
 def build_part(*, size: float = CUBE_SIZE_MM):
     """Build the part solid.
 
     Placeholder geometry: a cube of edge length `size`, sitting on the build
     plate (z = 0). Replace this body with the real part; the seeded constants
     above are ready to wire in.
-
-    Keep `build_part` callable with no arguments (every parameter defaulted) so
-    the repo runs out of the box and `preview.py` can render it.
     """
     return Box(size, size, size).translate((0, 0, size / 2))
 
@@ -59,6 +64,7 @@ def _parse_args():
     p = argparse.ArgumentParser(
         description="Generate an STL for $project_name.",
     )
+    # PLACEHOLDER (remove when implementing build_part): the --size arg.
     p.add_argument(
         "--size",
         type=float,
@@ -83,6 +89,7 @@ def main():
         args.output = Path(DEFAULT_OUTPUT)
 
     print("$project_name — resolved parameters:")
+    # PLACEHOLDER (remove when implementing build_part): the cube-size print.
     print(f"  Cube size            : {args.size} mm")
 $seeded_param_prints    print(f"  Output               : {args.output}")
     print()
