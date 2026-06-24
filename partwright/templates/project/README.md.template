@@ -12,7 +12,7 @@ Partwright.
 ```sh
 uv venv .venv --python 3.12
 uv pip install -r requirements.txt
-# optional requirements for code contributors
+# dev tools (black); needed to run the format step in CLAUDE.md
 uv pip install -r requirements-dev.txt
 ```
 
@@ -60,7 +60,7 @@ intent.
 
 ## Development
 
-Format the code:
+Format the code (requires the dev deps from the setup step above):
 
 ```sh
 .venv/bin/black *.py

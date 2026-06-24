@@ -18,7 +18,7 @@ $build_plan_pointer
 This repo can render itself, so **verify geometry visually before declaring a
 change done, and show the user the rendered preview.** For every geometry change:
 
-1. Read `BUILD_PLAN.md` and `DESIGN_BRIEF.md` for the intended geometry, and
+1. $design_docs_ref for the intended geometry, and
    check `reference/` for sketches (see below).
 2. Implement or edit `build_part` in `generate.py`.
 3. Run `.venv/bin/python generate.py` — exports the STL and surfaces build errors.
@@ -56,8 +56,15 @@ broken interpreter — use `uv` to get a clean Python 3.12.
 ## Code style
 
 Python is formatted with [black](https://black.readthedocs.io/) (pinned in
-`requirements-dev.txt`). Run `.venv/bin/black generate.py` after edits — black
-is the source of truth, so don't hand-align constants or wrap lines manually.
+`requirements-dev.txt`). Black is **not** in the runtime venv, so install the dev
+deps once before formatting:
+
+```sh
+uv pip install -r requirements-dev.txt
+```
+
+Then run `.venv/bin/black generate.py` after edits — black is the source of
+truth, so don't hand-align constants or wrap lines manually.
 
 ## Boolean-robustness conventions
 
