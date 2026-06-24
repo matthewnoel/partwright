@@ -392,6 +392,15 @@ def check_part(solid=None) -> bool:
     # for axis, got, want in zip("XYZ", (size.X, size.Y, size.Z), expected):
     #     if abs(got - want) > tolerance:
     #         problems.append(f"{axis} = {got:.2f} mm, expected {want} +/- {tolerance}")
+    # PLACEHOLDER (optional feature-count check): a bbox + solid count alone
+    # misses a wrong feature pattern — the right overall size with the wrong
+    # number of holes still passes. Assert the expected count of a countable
+    # feature (holes, slots, pockets) so a wrong pattern fails loudly. Uncomment
+    # and pick the feature topology your part has, e.g. through-holes:
+    # expected_holes = 4
+    # n_holes = sum(1 for f in solid.faces() if f.geom_type == "CYLINDER")
+    # if n_holes != expected_holes:
+    #     problems.append(f"expected {expected_holes} holes, found {n_holes}")
 
     if problems:
         for p in problems:
@@ -440,6 +449,18 @@ def _check_one(component, solid) -> list[str]:
     #                 f"{component} {axis} = {got:.2f} mm, "
     #                 f"expected {target} +/- {tolerance}"
     #             )
+    # PLACEHOLDER (optional feature-count check): a bbox + solid count alone
+    # misses a wrong feature pattern — the right size with the wrong number of
+    # holes still passes. Assert the expected count of a countable feature per
+    # component so a wrong pattern fails loudly. Uncomment and edit:
+    # expected_features = {"box": 0, "lid": 4}  # e.g. through-holes per component
+    # want_n = expected_features.get(component)
+    # if want_n is not None:
+    #     n_holes = sum(1 for f in solid.faces() if f.geom_type == "CYLINDER")
+    #     if n_holes != want_n:
+    #         problems.append(
+    #             f"{component}: expected {want_n} holes, found {n_holes}"
+    #         )
     return problems
 
 
