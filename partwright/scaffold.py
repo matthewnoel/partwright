@@ -350,8 +350,19 @@ def _summary_blocks(brief: dict | None):
 # ----------------------------------------------------------------------------
 
 
-def _build_substitutions(project_name: str, brief: dict | None) -> dict:
-    """Assemble the full placeholder -> value mapping for string.Template."""
+def _build_substitutions(
+    project_name: str, brief: dict | None, has_build_plan: bool = False
+) -> dict:
+    """Assemble the full placeholder -> value mapping for string.Template.
+
+    ``has_build_plan`` says whether a real ``BUILD_PLAN.md`` is actually being
+    copied into the repo. The scaffold only carries a plan when one was authored
+    beside the brief (the interactive `/design-part` flow); the non-interactive
+    `partwright new --brief` path usually has only a brief. The generated
+    ``CLAUDE.md`` must not point a build agent at a `BUILD_PLAN.md` that does not
+    exist, so the handoff prose is keyed off this flag rather than off merely
+    having a brief.
+    """
     coord_doc, coord_claude = _coord_lines(brief)
     summary_doc, summary_claude, summary_readme = _summary_blocks(brief)
 
@@ -359,18 +370,31 @@ def _build_substitutions(project_name: str, brief: dict | None) -> dict:
         seeded_constants = _render_seeded_constants(brief)
         seeded_cli_args = _render_seeded_cli_args(brief)
         seeded_param_prints = _render_seeded_param_prints(brief)
-        build_plan_pointer = (
-            "\n## Build plan\n\n"
-            "A `BUILD_PLAN.md` accompanies this repo. A build agent implementing "
-            "the real geometry in `generate.py` should work from `BUILD_PLAN.md` "
-            "as the implementation handoff, and `DESIGN_BRIEF.md` as the design "
-            "record.\n"
-        )
+        if has_build_plan:
+            build_plan_pointer = (
+                "\n## Build plan\n\n"
+                "A `BUILD_PLAN.md` accompanies this repo. A build agent "
+                "implementing the real geometry in `generate.py` should work "
+                "from `BUILD_PLAN.md` as the implementation handoff, and "
+                "`DESIGN_BRIEF.md` as the design record.\n"
+            )
+            design_docs_ref = "Read `BUILD_PLAN.md` and `DESIGN_BRIEF.md`"
+        else:
+            build_plan_pointer = (
+                "\n## Design brief\n\n"
+                "The `DESIGN_BRIEF.md` in this repo is the single source of "
+                "truth for the intended geometry — both the machine-readable "
+                "parameter table in its frontmatter and the prose design "
+                "record. No separate `BUILD_PLAN.md` was generated; the brief "
+                "carries the build intent.\n"
+            )
+            design_docs_ref = "Read `DESIGN_BRIEF.md`"
     else:
         seeded_constants = ""
         seeded_cli_args = ""
         seeded_param_prints = ""
         build_plan_pointer = ""
+        design_docs_ref = "Read any design notes you have"
 
     return {
         "project_name": project_name,
@@ -385,6 +409,7 @@ def _build_substitutions(project_name: str, brief: dict | None) -> dict:
         "seeded_cli_args": seeded_cli_args,
         "seeded_param_prints": seeded_param_prints,
         "build_plan_pointer": build_plan_pointer,
+        "design_docs_ref": design_docs_ref,
     }
 
 
@@ -444,7 +469,9 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     # --- Render every template file ---------------------------------------
-    subs = _build_substitutions(project_name, brief)
+    subs = _build_substitutions(
+        project_name, brief, has_build_plan=build_plan_path is not None
+    )
     try:
         repo_dir.mkdir(parents=True)
         for template_name, out_name in _FILE_MAP.items():
