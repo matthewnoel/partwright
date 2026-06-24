@@ -175,6 +175,12 @@ def _parse_brief(brief_path: Path) -> dict:
             raise BriefError(
                 f"{brief_path}: parameter '{param['name']}' 'unit' must be a string."
             )
+        derived_from = param.get("derived_from")
+        if derived_from is not None and not isinstance(derived_from, str):
+            raise BriefError(
+                f"{brief_path}: parameter '{param['name']}' 'derived_from' must be "
+                "a string."
+            )
 
     return data
 
@@ -239,6 +245,27 @@ def _constant_line(const: str, value_src: str, comment: str) -> str:
     return f"{const} = (\n    {value_src}  # {comment}\n)"
 
 
+def _wrap_comment(text: str) -> list[str]:
+    """Wrap `text` into `# `-prefixed comment lines that stay black-clean.
+
+    black never reflows a comment, so the rendered comment must already fit the
+    line-length limit; wrap at word boundaries (a single long word is left as-is
+    rather than split).
+    """
+    width = _BLACK_LINE_LENGTH - 2  # account for the "# " prefix
+    out: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > width:
+            out.append(f"# {current}")
+            current = word
+        else:
+            current = candidate
+    out.append(f"# {current}")
+    return out
+
+
 def _render_seeded_constants(brief: dict) -> str:
     """Build the named-constants block seeded from the brief's parameters."""
     units = brief["units"]
@@ -251,6 +278,13 @@ def _render_seeded_constants(brief: dict) -> str:
     ]
     for param in brief["parameters"]:
         const = _constant_name(param, units)
+        # A `derived_from` relation (e.g. "throat_depth = shelf_thickness") is
+        # documented as a comment line above the constant so the relation a build
+        # agent must honor is captured in code, not buried in the brief's prose.
+        derived_from = param.get("derived_from")
+        if derived_from:
+            for comment_line in _wrap_comment(f"derived: {derived_from}"):
+                lines.append(comment_line)
         lines.append(
             _constant_line(const, _format_default(param["default"]), param["meaning"])
         )

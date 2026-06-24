@@ -54,6 +54,13 @@ meaning = "slot tilt off vertical, toward +Y"
 default = 10.0
 unit    = "deg"                           # per-parameter override; omit for lengths
 cli     = true
+
+[[parameters]]
+name         = "nameplate_width"
+meaning      = "nameplate slab width along X"
+default      = 101.6
+cli          = false                      # reference dim: a constant, not a flag
+derived_from = "nameplate_width = segment_length"  # documents the relation only
 +++
 ```
 
@@ -93,6 +100,25 @@ knob. Each becomes a named constant in the generated `generate.py`, and — when
 | `default` | **required** | number | The default value. Interpreted in `units` for lengths, unless `unit` overrides it. |
 | `cli` | **required** | boolean | Whether to expose this parameter as a CLI flag. |
 | `unit` | optional | string | Per-parameter unit override (e.g. `"deg"`). Omit for plain lengths, which use the top-level `units`. |
+| `derived_from` | optional | string | A short relation showing how this dimension is derived from or related to others (e.g. `"throat_depth = shelf_thickness"`, `"plate_width = board_footprint_x + 2*plate_margin"`). Surfaced as a `# derived: ...` comment above the seeded constant so the relation is captured in code, not buried in prose. The value is documentation only — the scaffolder does **not** evaluate it. |
+
+### Reference and derived dimensions
+
+Some load-bearing numbers are not independent tunable knobs: a **reference**
+dimension is authoritative-but-fixed (e.g. a board footprint a plate is sized
+around), and a **derived** dimension is defined by a relation to other
+parameters. Express both as ordinary `[[parameters]]` entries so they are seeded
+as named constants like every other dimension:
+
+- For a **reference** dimension, add a `[[parameters]]` entry with `cli = false`
+  so it becomes a constant but no flag.
+- For a **derived** dimension, add the `derived_from` field documenting the
+  relation. The scaffolder records the relation as a comment above the constant;
+  a build agent reads it and computes the value when wiring `build_part` (the
+  scaffolder does not evaluate expressions — it stays a stdlib `tomllib` parse).
+
+This keeps such numbers out of the prose body, where a build agent would
+otherwise have to infer them.
 
 ## Constant and flag derivation rule
 
