@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+from importlib.resources import files
 from pathlib import Path
 
 __all__ = ["run"]
@@ -34,10 +35,11 @@ _SKETCHES_DIRNAME = "sketches"
 def _templates_dir() -> Path:
     """Absolute path to Partwright's `templates/brief/` directory.
 
-    `brief.py` lives at `<repo>/partwright/brief.py`, so the templates are a
-    sibling of `partwright/` at `<repo>/templates/brief/`.
+    The brief templates ship inside the package at `partwright/templates/brief/`,
+    so they resolve through `importlib.resources` whether Partwright is run from a
+    clone or installed as a wheel via `uv tool install`.
     """
-    return Path(__file__).resolve().parent.parent / "templates" / "brief"
+    return Path(str(files("partwright") / "templates" / "brief"))
 
 
 def run(args: argparse.Namespace) -> int:

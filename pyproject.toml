@@ -19,13 +19,14 @@ dependencies = []
 [project.scripts]
 partwright = "partwright.cli:main"
 
-[tool.setuptools]
-packages = ["partwright"]
+[tool.setuptools.packages.find]
+include = ["partwright*"]
 
 [tool.setuptools.package-data]
-# The scaffolder, brief generator, and sketch tool ship their templates and web
-# assets alongside the package so an installed `partwright` can find them.
-partwright = []
+# The scaffolder, brief generator, sketch tool, and orchestrator skill ship their
+# templates and assets inside the package so an installed `partwright` (via
+# `uv tool install`/`uvx`) finds them without needing the source checkout.
+partwright = ["templates/**/*", "web/**/*", "skills/**/*"]
 
 [tool.black]
 target-version = ["py312"]
