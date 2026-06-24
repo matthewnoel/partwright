@@ -7,6 +7,9 @@ __pycache__/
 # Environments
 .venv/
 
+# Stray lockfile from ad-hoc `uv run --with ...` (Partwright ships no lockfile)
+uv.lock
+
 # Build / packaging artifacts
 build/
 dist/
