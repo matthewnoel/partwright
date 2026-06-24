@@ -247,7 +247,7 @@ def _render_seeded_constants(brief: dict) -> str:
         "# === Seeded from DESIGN_BRIEF.md ============================================",
         "# These constants come from the design brief. The placeholder geometry above",
         "# does not use them yet — a build agent wires them into `build_part` when the",
-        "# real part is implemented (see BUILD_PLAN.md).",
+        "# real part is implemented (see DESIGN_BRIEF.md).",
     ]
     for param in brief["parameters"]:
         const = _constant_name(param, units)
