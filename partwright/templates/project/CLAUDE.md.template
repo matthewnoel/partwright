@@ -94,6 +94,13 @@ the artifacts only show up after STL export. When you add a feature that cuts or
 fuses to a face of the parent solid, give the cutter a small overshoot (a
 `_FACE_OVERLAP_MM`-style tab) so the Boolean never resolves a coincident face.
 
+Fillets need the same care on edge selection. A single scalar radius usually
+cannot be applied to a whole edge set at once — at a tight concave corner the
+requested radius exceeds the available room and OCCT raises
+`ValueError: Failed creating a fillet`. Select the edges deliberately (filter by
+position or orientation, e.g. only the four vertical outer corners) rather than
+filleting every edge, and keep the radius within what the geometry allows.
+
 ## Reference sketches
 
 The `reference/` folder holds design-intent drawings — SVGs from
