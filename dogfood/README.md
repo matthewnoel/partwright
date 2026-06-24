@@ -76,8 +76,52 @@ This is the model to fan out across an agent team. Each agent owns **one** part:
    `DOGFOOD_FEEDBACK.md` and fills it in *about the tool*, not the part.
 4. **Collect & track** — the orchestrator runs `python dogfood/run.py
    --emit-issues`, reviews the aggregated feedback in `report.json`, and files
-   the fileable payloads in `issues.json` as GitHub issues so each improvement is
-   tracked to closure.
+   the fileable findings as GitHub issues so each improvement is tracked to
+   closure. `issues.json` is a *starting point*, not the final cut — see
+   "Filing issues from a pass" below.
+
+## The build-agent prompt
+
+Each per-part build agent gets the same two-part brief. Give it the repo path
+and tell it explicitly that the job has two halves — building and *reporting on
+the tool*, not just building — or it will skip the feedback:
+
+> You are a Partwright build agent dogfooding the tool. You own ONE part: the
+> repo scaffolded at `dogfood/work/<name>/`. Work only in that directory.
+>
+> **Build:** Read `CLAUDE.md`, `DESIGN_BRIEF.md` (and `BUILD_PLAN.md` if
+> present), and `reference/`. Replace the placeholder `build_part` in
+> `generate.py` with the real geometry (keep it callable with no args). Run
+> `generate.py`, then `preview.py`, then **read `preview.png`** and iterate
+> until the geometry matches the brief. Run `generate.py --check` to confirm a
+> single watertight solid, and `black` after edits.
+>
+> **Report:** Copy `dogfood/FEEDBACK_TEMPLATE.md` into the repo as
+> `DOGFOOD_FEEDBACK.md` and fill in every section honestly **about the tool**
+> (friction, what the scaffold got right, what's missing, did the visual loop
+> work) — not about the part. Pick one severity: blocker | major | minor | nit.
+
+Vary the parts across agents so different corners of the tool get exercised.
+
+## Filing issues from a pass
+
+`--emit-issues` writes one payload *per feedback file*. That is raw material,
+not the issue list to file verbatim. Before opening issues:
+
+- **Dedup by distinct problem, not by part.** If two agents hit the same gap
+  (e.g. the same missing dev dep), that is **one** issue citing both, not two.
+  Conversely, one feedback file usually contains several distinct findings worth
+  splitting into separate issues.
+- **Verify each claim against the source before filing.** An agent's report can
+  be wrong or imprecise. Confirm it in the code (e.g. open `scaffold.py` to
+  check a "file isn't generated" claim) and cite the file/line in the issue, so
+  the maintainer gets a located, reproduced problem — not a rumor.
+- **Label consistently.** Keep the `dogfood` + `severity:<level>` labels the
+  driver emits, and add `bug` vs `enhancement` by your own read of the finding.
+- **Skip `looks_unfilled` payloads** — those are blank templates an agent never
+  filled in.
+- **Close the loop.** When a fix merges, close its issue with a pointer to the
+  commit so the feedback → tracked → fixed → closed lifecycle is complete.
 
 ## Adding a fixture
 
