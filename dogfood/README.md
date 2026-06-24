@@ -42,11 +42,22 @@ python dogfood/run.py --build
 
 # 3. After agents have built and left DOGFOOD_FEEDBACK.md files, aggregate them.
 python dogfood/run.py --collect
+
+# 4. Turn that feedback into ready-to-file GitHub issue payloads (issues.json).
+python dogfood/run.py --emit-issues
 ```
 
 Every run writes a machine-readable `dogfood/work/report.json` and prints a
 summary. The driver exits non-zero if any part failed to scaffold or build, so an
 orchestrator or CI step can gate on it.
+
+`--emit-issues` writes `dogfood/work/issues.json` — one issue payload (title,
+labels, body) per feedback file, with a `severity:<level>` label parsed from the
+feedback and a `looks_unfilled` flag on copies that are still the blank template.
+The driver stays offline and credential-free: it emits payloads, and the
+orchestrator files the fileable ones via its own GitHub tooling. That's the seam
+that gives improvement tracking a real lifecycle (feedback → tracked issue)
+instead of a JSON snapshot.
 
 ## The orchestration loop
 
@@ -57,13 +68,16 @@ This is the model to fan out across an agent team. Each agent owns **one** part:
 2. **Build** — the agent works the repo's own `CLAUDE.md` loop: implement
    `build_part` in `generate.py`, run `generate.py` then `preview.py`, **read
    `preview.png`**, and iterate until the geometry matches `BUILD_PLAN.md`. The
-   agent does this work *itself* — do **not** shell out to a nested `claude -p`
-   (the skill's Stage 5 does that for the interactive flow; it does not map to a
-   subagent/Task orchestrator and needs a human to set the permission posture).
+   agent does this work *itself* with the repo as its working directory — it does
+   not need to shell out to a nested `claude -p`. (The skill's Stage 5 is now
+   orchestrator-agnostic about how the build agent is spawned; a subagent/Task
+   driving the repo directly satisfies the same contract.)
 3. **Report** — the agent copies `FEEDBACK_TEMPLATE.md` into the repo as
    `DOGFOOD_FEEDBACK.md` and fills it in *about the tool*, not the part.
-4. **Collect** — the orchestrator runs `python dogfood/run.py --collect` and
-   reviews the aggregated feedback in `report.json`.
+4. **Collect & track** — the orchestrator runs `python dogfood/run.py
+   --emit-issues`, reviews the aggregated feedback in `report.json`, and files
+   the fileable payloads in `issues.json` as GitHub issues so each improvement is
+   tracked to closure.
 
 ## Adding a fixture
 
@@ -73,15 +87,25 @@ machine-readable contract; the eight-section Markdown body is prose for the buil
 agent). The driver discovers it automatically. Vary complexity on purpose — a
 trivial part and a hole-pattern part exercise different corners of the tool.
 
-## Known non-interactive gaps (test targets, not yet fixed)
+## Non-interactive gaps — addressed, and remaining
 
-These are the interactive assumptions an orchestrated run still trips over. They
-are what dogfooding is meant to surface and pressure-test:
+Closed so an orchestrated run no longer trips over them:
 
-- **`partwright sketch` blocks forever** (`serve_forever`, opens a browser) with
-  no headless/`--no-serve` mode — an agent that runs it hangs.
-- **The build agents need `uv` + outbound network** to install build123d/OCCT;
-  the scaffolded `settings.local.json` only allowlists `.venv/bin/python` and
-  `.venv/bin/black`, not the `uv` install step.
-- **Feedback is visual-by-design** (`preview.png`) with no machine-readable
-  pass/fail to aggregate across a fleet.
+- **`partwright sketch` hanging** — fixed with `partwright sketch --no-serve`,
+  which resolves the dest and the page path, prints them, and exits without
+  serving or opening a browser. Safe to call unattended.
+- **Build permission friction** — the scaffolded `settings.local.json` now
+  allowlists `uv venv` and `uv pip install` alongside `.venv/bin/python` and
+  `.venv/bin/black`, so an unattended build isn't blocked on the install step.
+  (The agent's environment still needs `uv` + outbound network for build123d.)
+- **Nested-`claude` coupling** — the skill's Stage 5 is now orchestrator-agnostic
+  about how the build agent is spawned.
+
+Still worth pressure-testing through dogfooding:
+
+- **The interactive `/design-part` flow itself** — the interview writing gate and
+  the live sketch step are inherently human-in-the-loop; this harness exercises
+  the CLI and the scaffolded build loop, not that experience.
+- **Geometry feedback is visual** (`preview.png`); `report.json` gives
+  machine-readable scaffold/build pass/fail, but correctness of the *shape* still
+  needs an agent (or human) reading the preview.

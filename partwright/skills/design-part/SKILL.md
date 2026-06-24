@@ -81,16 +81,29 @@ This stamps a standalone build123d repo, seeded from the brief, with
 `BUILD_PLAN.md`, `DESIGN_BRIEF.md`, and the sketches copied in. The repo's
 `CLAUDE.md` already points a build agent at `BUILD_PLAN.md`.
 
-### 5. Spawn the build agent (headless)
+### 5. Hand off to the build agent (non-interactive)
 
 The build is non-interactive by design: the build agent works only from the repo's
-`CLAUDE.md` and `BUILD_PLAN.md` and never talks to the maker. So hand it off to a
-**separate headless `claude`** run with the scaffolded repo as its working
-directory — this is the `claude eval(BUILD_PLAN.md)` step:
+`CLAUDE.md` and `BUILD_PLAN.md`, with the scaffolded repo as its working
+directory, and never talks to the maker. This is the `eval(BUILD_PLAN.md)` step.
 
-```
-cd <repos-dir>/<project-name> && claude -p "Read CLAUDE.md and BUILD_PLAN.md, then implement generate.py for this part. Render preview.py and visually verify preview.png before declaring the build done."
-```
+**How you spawn that agent depends on your environment — pick whichever your
+orchestrator actually provides; do not assume one mechanism:**
+
+- A separate headless `claude` subprocess, when you have the CLI on PATH:
+  ```
+  cd <repos-dir>/<project-name> && claude -p "Read CLAUDE.md and BUILD_PLAN.md, then implement generate.py for this part. Render preview.py and visually verify preview.png before declaring the build done."
+  ```
+- A subagent / Task in an orchestrator that offers one — hand it the same brief
+  (read `CLAUDE.md` and `BUILD_PLAN.md`, implement `generate.py`, verify
+  `preview.png`) with the repo as its working directory.
+- If you have neither, do the build yourself in a fresh, separate pass scoped to
+  the repo — the invariant is *separate context working only from the repo
+  files*, not a particular binary.
+
+Whatever the mechanism, the contract is the same: the build agent reads only
+`CLAUDE.md` + `BUILD_PLAN.md`, implements `build_part`, and visually verifies
+`preview.png` before declaring done.
 
 Before launching an unattended run, **confirm the permission posture with the
 maker** — an autonomous build will want broad file/Bash permissions in that repo

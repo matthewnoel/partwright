@@ -25,6 +25,10 @@ Stages
 3. **collect** (``--collect``): aggregate every ``DOGFOOD_FEEDBACK.md`` an agent
    left in a work repo into one report, so feedback about the tool comes back
    structured instead of scattered.
+4. **emit-issues** (``--emit-issues``): turn that feedback into ready-to-file
+   GitHub issue payloads (``issues.json``) so improvement tracking has a real
+   lifecycle — the orchestrator files them via its own GitHub tooling. Stays
+   offline and credential-free; it only emits payloads, it does not call GitHub.
 
 A machine-readable ``report.json`` is always written to the work directory, and
 a short summary is printed. Standard library only — no third-party imports,
@@ -191,6 +195,72 @@ def collect_feedback(work_dir: Path) -> list[dict]:
     return notes
 
 
+# Severity words an agent may write under the "## Severity" section, mapped to
+# the issue label the orchestrator should apply.
+_SEVERITY_WORDS = ("blocker", "major", "minor", "nit")
+
+# A still-unfilled feedback file carries this sentence from the template intro.
+_TEMPLATE_SENTINEL = "Copy this file into your scaffolded repo"
+
+
+def _section(body: str, heading: str) -> str:
+    """Return the text under a ``## heading`` up to the next ``## `` heading."""
+    lines = body.splitlines()
+    out: list[str] = []
+    capturing = False
+    for line in lines:
+        if line.strip().lower().startswith("## "):
+            if capturing:
+                break
+            capturing = heading.lower() in line.strip().lower()
+            continue
+        if capturing:
+            out.append(line)
+    return "\n".join(out).strip()
+
+
+def _severity_label(body: str) -> str | None:
+    """Derive a ``severity:<level>`` label from the Severity section, if any."""
+    text = _section(body, "Severity").lower()
+    for word in _SEVERITY_WORDS:
+        if word in text:
+            return f"severity:{word}"
+    return None
+
+
+def feedback_to_issues(feedback: list[dict]) -> list[dict]:
+    """Turn collected feedback into ready-to-file GitHub issue payloads.
+
+    Stays offline and credential-free (stdlib only): it emits issue *payloads*
+    — title, body, labels — that an orchestrator with GitHub access files via
+    its own tooling. Unfilled template copies are flagged ``looks_unfilled`` so
+    the orchestrator can skip noise instead of opening empty issues.
+    """
+    issues: list[dict] = []
+    for note in feedback:
+        body = note["body"]
+        part = note["part"]
+        summary = _section(body, "What I built").splitlines()
+        headline = next((ln.strip() for ln in summary if ln.strip()), "")
+        title = f"[dogfood] {part}: {headline}" if headline else f"[dogfood] {part}"
+
+        labels = ["dogfood", "feedback"]
+        severity = _severity_label(body)
+        if severity:
+            labels.append(severity)
+
+        issues.append(
+            {
+                "part": part,
+                "title": title[:120],
+                "labels": labels,
+                "looks_unfilled": _TEMPLATE_SENTINEL in body,
+                "body": f"_Dogfood feedback from `{note['path']}`._\n\n{body}",
+            }
+        )
+    return issues
+
+
 def _print_summary(report: dict) -> None:
     parts = report["parts"]
     print(f"\nPartwright dogfood — {report['stage']}")
@@ -245,6 +315,14 @@ def main(argv: list[str] | None = None) -> int:
         help="aggregate DOGFOOD_FEEDBACK.md files from the work dir into the report",
     )
     parser.add_argument(
+        "--emit-issues",
+        action="store_true",
+        help=(
+            "also derive ready-to-file GitHub issue payloads from collected "
+            "feedback and write them to issues.json (implies --collect)"
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=600,
@@ -271,13 +349,23 @@ def main(argv: list[str] | None = None) -> int:
         "work_dir": str(args.work_dir),
         "parts": parts,
     }
-    if args.collect:
+    if args.collect or args.emit_issues:
         report["feedback"] = collect_feedback(args.work_dir)
 
     report_path = args.work_dir / "report.json"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     _print_summary(report)
     print(f"  report   : {report_path}")
+
+    if args.emit_issues:
+        issues = feedback_to_issues(report.get("feedback", []))
+        issues_path = args.work_dir / "issues.json"
+        issues_path.write_text(json.dumps(issues, indent=2) + "\n", encoding="utf-8")
+        fileable = sum(1 for i in issues if not i["looks_unfilled"])
+        print(
+            f"  issues   : {issues_path} "
+            f"({fileable} fileable, {len(issues) - fileable} look unfilled)"
+        )
 
     # Non-zero exit if anything failed, so a CI / orchestrator can gate on it.
     failed = any(p.get("scaffold") == "fail" or p.get("build") == "fail" for p in parts)

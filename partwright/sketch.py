@@ -210,6 +210,18 @@ def run(args: argparse.Namespace) -> int:
         print("  the web/sketch.html asset is missing from the install.")
         return 1
 
+    # Headless / unattended path: the default mode below blocks in
+    # serve_forever() until Ctrl-C, so an agent that runs `partwright sketch`
+    # hangs its session. --no-serve resolves the dest and the self-contained
+    # page, prints them, and returns immediately without serving or opening a
+    # browser. The page works opened directly via file://.
+    if getattr(args, "no_serve", False):
+        print("partwright sketch — headless (--no-serve)")
+        print(f"  drawings folder: {dest}")
+        print(f"  sketch page:     {_SKETCH_HTML}")
+        print(f"  open directly:   file://{_SKETCH_HTML}")
+        return 0
+
     html_bytes = _SKETCH_HTML.read_bytes()
 
     host = "127.0.0.1"
