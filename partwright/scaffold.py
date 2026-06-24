@@ -522,6 +522,8 @@ def _render_single_main(project_name: str, param_prints: str) -> str:
         '    print(f"  Output               : {args.output}")\n'
         "    print()\n"
         "\n"
+        "    # PLACEHOLDER (remove when implementing build_part): the build_part "
+        "call site.\n"
         "    solid = build_part(size=args.size)\n"
         "\n"
         "    out_path = args.output\n"
