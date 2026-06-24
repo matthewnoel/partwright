@@ -19,7 +19,7 @@ existing subcommand's namespace):
     new          -> args.project_name (str), args.dest (str),
                     args.brief (str|None), args.no_git (bool)
     brief        -> args.idea_name (str), args.dest (str)
-    sketch       -> args.dest (str)
+    sketch       -> args.dest (str), args.no_serve (bool)
     install-skill-> args.dest (str|None), args.force (bool)
   Every namespace also carries `args.command` (the subcommand name) and
   `args.func` (the bound `run` callable chosen by the dispatcher).
@@ -147,6 +147,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         default=".",
         help="folder that drawings save into (default: current directory)",
+    )
+    sketch_parser.add_argument(
+        "--no-serve",
+        action="store_true",
+        help=(
+            "do not start the server or open a browser; just ensure the dest "
+            "folder exists and print the path to the self-contained sketch page, "
+            "then exit. Safe to call unattended — the default mode blocks until "
+            "Ctrl-C and is for interactive use only."
+        ),
     )
     sketch_parser.set_defaults(func=sketch.run)
 

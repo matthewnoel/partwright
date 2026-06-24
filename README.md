@@ -125,12 +125,15 @@ subfolder.
 ### `partwright sketch`
 
 ```
-partwright sketch [--dest DIR]
+partwright sketch [--dest DIR] [--no-serve]
 ```
 
 Serves the self-contained SVG sketch tool from a tiny local server and opens it
 in the browser. Drawings save into `--dest`. The same HTML file also works
-opened directly via `file://`, falling back to a browser download.
+opened directly via `file://`, falling back to a browser download. `--no-serve`
+skips the server and browser entirely — it just ensures `--dest` exists and
+prints the path to the sketch page, so the command is safe to call unattended
+(the default mode blocks until Ctrl-C).
 
 ### `partwright install-skill`
 
@@ -161,8 +164,6 @@ uv run --with black black --check partwright/
 
 ```
 partwright/
-  PRD.md                  # product requirements
-  ROADMAP.md              # phased build plan
   README.md               # this file
   pyproject.toml          # package metadata; `partwright` entry point, no runtime deps
   partwright/              # the CLI package (standard library only)

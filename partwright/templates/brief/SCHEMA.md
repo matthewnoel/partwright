@@ -2,12 +2,9 @@
 
 This document specifies the structured frontmatter of a `DESIGN_BRIEF.md` file.
 It is the single documented contract shared by three consumers: the
-`DESIGN_BRIEF.md` template (Phase 2), the design-brief generator
-(`partwright brief`, Phase 2), and the new-project scaffolder (`partwright new`,
-Phase 1). All three are built against this schema.
-
-It is transcribed from **PRD §6.2**, which is the authoritative source. If this
-file and the PRD ever disagree, the PRD wins.
+`DESIGN_BRIEF.md` template, the design-brief generator (`partwright brief`), and
+the new-project scaffolder (`partwright new`). All three are built against this
+schema, and this file is the authoritative source for the contract.
 
 ## File shape
 
