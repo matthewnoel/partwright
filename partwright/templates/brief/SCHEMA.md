@@ -113,9 +113,24 @@ parameter's `name` and `unit`:
 ## `components` behavior
 
 - If `components` is **omitted**, or contains a **single entry**, the part is a
-  one-artifact part and no `--component` flag is generated.
-- If `components` contains **more than one entry**, the scaffolder adds a
-  `--component` choice flag whose choices are the listed component names.
+  one-artifact part: `build_part(*, size=...)` returns one solid, `check_part`
+  asserts a single watertight solid, and the default STL export path is
+  `<project_name>.stl`. No `--component` flag is generated.
+- If `components` contains **more than one entry**, the scaffolder emits a
+  per-component build/check/export contract in `generate.py`:
+  - A module-level `COMPONENTS` tuple seeded from the listed names.
+  - `build_part(component=COMPONENTS[0], *, size=...)` dispatches to a
+    per-component placeholder builder. Called with **no arguments** it returns
+    the **first** component, so `preview.py` (which calls `build_part()` with no
+    args) and the out-of-the-box run still work.
+  - A `--component` choice flag (choices = the component names, default =
+    first) selects which component to build and export, and an `--all` flag
+    exports every component in one run.
+  - Per-component STL filenames: `<project_name>-<component>.stl`. An explicit
+    `--output` applies only when a single component is exported.
+  - `check_part` iterates `COMPONENTS`, printing each component's bounding box
+    and solid count and asserting **each** is a single watertight solid (rather
+    than asserting the whole part is exactly one solid).
 
 ## Malformed-brief behavior
 

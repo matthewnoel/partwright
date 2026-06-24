@@ -213,6 +213,19 @@ def _dq(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _ident(text: str) -> str:
+    """Sanitize a component name into a Python identifier fragment.
+
+    Used to derive a per-component builder function name (e.g. `_build_box`).
+    Non-identifier characters collapse to underscores so any brief-supplied
+    component name yields a valid function suffix.
+    """
+    out = "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in text)
+    if not out or out[0].isdigit():
+        out = "c_" + out
+    return out
+
+
 def _constant_line(const: str, value_src: str, comment: str) -> str:
     """Render `CONST = value  # comment`, pre-wrapped the way black would.
 
@@ -258,8 +271,20 @@ def _render_seeded_cli_args(brief: dict) -> str:
             f"        choices=[{choices}],\n"
             f"        default={_dq(components[0])},\n"
             "        help=(\n"
-            '            "Which artifact to build. Seeded from the brief; the "\n'
-            '            "placeholder geometry ignores it."\n'
+            '            "Which component to build and export. Selects the '
+            "matching "
+            '"\n'
+            "            "
+            'f"placeholder builder; default {COMPONENTS[0]}."\n'
+            "        ),\n"
+            "    )\n"
+            "    p.add_argument(\n"
+            '        "--all",\n'
+            '        dest="all_components",\n'
+            '        action="store_true",\n'
+            "        help=(\n"
+            '            "Build and export every component, each to its own "\n'
+            '            "per-component STL filename. Overrides --component."\n'
             "        ),\n"
             "    )\n"
         )
@@ -305,6 +330,323 @@ def _render_seeded_param_prints(brief: dict) -> str:
         label = (label[:20]).ljust(20)
         lines.append(f'    print(f"  {label}: {{args.{attr}}}")\n')
     return "".join(lines)
+
+
+# ----------------------------------------------------------------------------
+# Multi-component contract (only emitted when len(components) > 1)
+# ----------------------------------------------------------------------------
+# A single-component (or no-brief) scaffold renders the placeholders below as the
+# exact original single-solid skeleton, byte-for-byte. The multi-component branch
+# only kicks in for briefs that declare more than one component: it carries a
+# `COMPONENTS` tuple, a per-component dispatch in `build_part`, a per-component
+# `check_part` loop, and a `--component` / `--all` aware `main`.
+
+# The original single-component function definitions, kept verbatim so a
+# one-component scaffold is identical to the pre-multi-component template output.
+_SINGLE_BUILD_PART_DEF = '''\
+def build_part(*, size: float = CUBE_SIZE_MM):
+    """Build the part solid.
+
+    Placeholder geometry: a cube of edge length `size`, sitting on the build
+    plate (z = 0). Replace this body with the real part; the seeded constants
+    above are ready to wire in.
+    """
+    return Box(size, size, size).translate((0, 0, size / 2))'''
+
+_SINGLE_CHECK_PART_DEF = '''\
+def check_part(solid=None) -> bool:
+    """Sanity-check the built geometry; return True if it passes.
+
+    Two checks run for any part: the result must be a single watertight solid
+    (more than one solid usually means a Boolean silently split the part), and
+    the bounding box is printed so you can reconcile it against the expected
+    dimensions in DESIGN_BRIEF.md. Fill in EXPECTED below to turn the dimension
+    readout into a hard assert — then `generate.py --check` becomes a real
+    guardrail the build loop (and the dogfood harness) can gate on.
+    """
+    if solid is None:
+        solid = build_part()
+    bbox = solid.bounding_box()
+    size = bbox.size
+    n_solids = len(solid.solids())
+
+    print("geometry self-check:")
+    print(f"  solids        : {n_solids}")
+    print(f"  bounding box  : {size.X:.2f} x {size.Y:.2f} x {size.Z:.2f} mm")
+    print(
+        f"  min .. max    : "
+        f"({bbox.min.X:.2f}, {bbox.min.Y:.2f}, {bbox.min.Z:.2f}) .. "
+        f"({bbox.max.X:.2f}, {bbox.max.Y:.2f}, {bbox.max.Z:.2f})"
+    )
+
+    problems = []
+    if n_solids != 1:
+        problems.append(
+            f"expected a single watertight solid, got {n_solids} "
+            "(a Boolean op may have split the part)"
+        )
+    # PLACEHOLDER (fill in from DESIGN_BRIEF.md section 5): assert the expected
+    # overall dimensions so a wrong build fails loudly. Uncomment and edit:
+    # expected = (97.0, 68.0, 3.0)  # (X, Y, Z) in mm
+    # tolerance = 0.5
+    # for axis, got, want in zip("XYZ", (size.X, size.Y, size.Z), expected):
+    #     if abs(got - want) > tolerance:
+    #         problems.append(f"{axis} = {got:.2f} mm, expected {want} +/- {tolerance}")
+
+    if problems:
+        for p in problems:
+            print(f"  FAIL: {p}")
+        return False
+    print("  OK")
+    return True'''
+
+# Multi-component check_part: iterate every component, print its bbox + solid
+# count, and assert each individual component is a single watertight solid.
+_MULTI_CHECK_PART_DEF = '''\
+def _check_one(component, solid) -> list[str]:
+    """Check a single component's solid; return a list of problem strings."""
+    bbox = solid.bounding_box()
+    size = bbox.size
+    n_solids = len(solid.solids())
+
+    print(f"  [{component}]")
+    print(f"    solids        : {n_solids}")
+    print(f"    bounding box  : {size.X:.2f} x {size.Y:.2f} x {size.Z:.2f} mm")
+    print(
+        f"    min .. max    : "
+        f"({bbox.min.X:.2f}, {bbox.min.Y:.2f}, {bbox.min.Z:.2f}) .. "
+        f"({bbox.max.X:.2f}, {bbox.max.Y:.2f}, {bbox.max.Z:.2f})"
+    )
+
+    problems = []
+    if n_solids != 1:
+        problems.append(
+            f"{component}: expected a single watertight solid, got {n_solids} "
+            "(a Boolean op may have split the part)"
+        )
+    # PLACEHOLDER (fill in from DESIGN_BRIEF.md section 5): assert each
+    # component's expected overall dimensions so a wrong build fails loudly.
+    # Uncomment and edit the per-component expected map:
+    # expected = {
+    #     "box": (84.8, 59.8, 42.0),  # (X, Y, Z) in mm
+    #     "lid": (87.8, 62.8, 10.0),
+    # }
+    # tolerance = 0.5
+    # want = expected.get(component)
+    # if want is not None:
+    #     for axis, got, target in zip("XYZ", (size.X, size.Y, size.Z), want):
+    #         if abs(got - target) > tolerance:
+    #             problems.append(
+    #                 f"{component} {axis} = {got:.2f} mm, "
+    #                 f"expected {target} +/- {tolerance}"
+    #             )
+    return problems
+
+
+def check_part(solid=None) -> bool:
+    """Sanity-check every component's geometry; return True if all pass.
+
+    Iterates COMPONENTS, building each, printing its bounding box and solid
+    count, and asserting each is a single watertight solid (more than one
+    solid usually means a Boolean silently split that component). Reconcile the
+    printed bounding boxes against DESIGN_BRIEF.md, then fill in the per-component
+    EXPECTED map in `_check_one` to turn the readout into a hard assert — then
+    `generate.py --check` becomes a real guardrail the build loop can gate on.
+
+    `solid`, if given, is checked alone against the first component (the
+    preview.py path); otherwise every component is built and checked.
+    """
+    print("geometry self-check:")
+    problems = []
+    if solid is not None:
+        problems += _check_one(COMPONENTS[0], solid)
+    else:
+        for component in COMPONENTS:
+            problems += _check_one(component, build_part(component))
+
+    if problems:
+        for p in problems:
+            print(f"  FAIL: {p}")
+        return False
+    print("  OK")
+    return True'''
+
+
+def _render_main_def(project_name: str, brief: dict | None) -> str:
+    """Render the `main()` function for single- or multi-component scaffolds."""
+    components = (brief or {}).get("components") or []
+    param_prints = _render_seeded_param_prints(brief) if brief is not None else ""
+    if len(components) > 1:
+        return _render_multi_main(project_name, param_prints)
+    return _render_single_main(project_name, param_prints)
+
+
+def _render_single_main(project_name: str, param_prints: str) -> str:
+    """The original single-component `main()`, kept byte-for-byte."""
+    return (
+        "def main():\n"
+        "    args = _parse_args()\n"
+        "\n"
+        "    if args.check:\n"
+        "        sys.exit(0 if check_part() else 1)\n"
+        "\n"
+        "    if args.output is None:\n"
+        "        args.output = Path(DEFAULT_OUTPUT)\n"
+        "\n"
+        f'    print("{project_name} — resolved parameters:")\n'
+        "    # PLACEHOLDER (remove when implementing build_part): the "
+        "cube-size print.\n"
+        '    print(f"  Cube size            : {args.size} mm")\n'
+        f"{param_prints}"
+        '    print(f"  Output               : {args.output}")\n'
+        "    print()\n"
+        "\n"
+        "    solid = build_part(size=args.size)\n"
+        "\n"
+        "    out_path = args.output\n"
+        '    if out_path.parent and str(out_path.parent) not in ("", "."):\n'
+        "        out_path.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    export_stl(solid, str(out_path))\n"
+        '    print(f"Wrote STL: {out_path}")'
+    )
+
+
+def _render_multi_main(project_name: str, param_prints: str) -> str:
+    """The multi-component `main()`: --component / --all aware, per-file export.
+
+    The default per-component STL filename is `<project>-<component>.stl`. An
+    explicit `--output` wins, but only when exactly one component is exported
+    (it would be ambiguous to send every `--all` component to one path).
+    """
+    return (
+        "def _output_path_for(component, explicit):\n"
+        '    """Resolve the STL path for one component.\n'
+        "\n"
+        "    An explicit --output wins; otherwise default to the per-component\n"
+        "    filename `<project>-<component>.stl`.\n"
+        '    """\n'
+        "    if explicit is not None:\n"
+        "        return Path(explicit)\n"
+        "    stem = Path(DEFAULT_OUTPUT).stem\n"
+        '    suffix = Path(DEFAULT_OUTPUT).suffix or ".stl"\n'
+        '    return Path(f"{stem}-{component}{suffix}")\n'
+        "\n"
+        "\n"
+        "def _export_component(component, *, size, explicit):\n"
+        '    """Build one component and write its STL; return the output path."""\n'
+        "    solid = build_part(component, size=size)\n"
+        "    out_path = _output_path_for(component, explicit)\n"
+        '    if out_path.parent and str(out_path.parent) not in ("", "."):\n'
+        "        out_path.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    export_stl(solid, str(out_path))\n"
+        '    print(f"Wrote STL: {out_path}")\n'
+        "    return out_path\n"
+        "\n"
+        "\n"
+        "def main():\n"
+        "    args = _parse_args()\n"
+        "\n"
+        "    if args.check:\n"
+        "        sys.exit(0 if check_part() else 1)\n"
+        "\n"
+        "    if args.all_components:\n"
+        "        targets = list(COMPONENTS)\n"
+        "    else:\n"
+        "        targets = [args.component]\n"
+        "\n"
+        f'    print("{project_name} — resolved parameters:")\n'
+        "    # PLACEHOLDER (remove when implementing build_part): the "
+        "cube-size print.\n"
+        '    print(f"  Cube size            : {args.size} mm")\n'
+        f"{param_prints}"
+        "    print(f\"  Components to build  : {', '.join(targets)}\")\n"
+        "    print()\n"
+        "\n"
+        "    # --output names a single file, so it only applies when exactly one\n"
+        "    # component is exported; with --all each component uses its own name.\n"
+        "    explicit = args.output if len(targets) == 1 else None\n"
+        "    for component in targets:\n"
+        "        _export_component(component, size=args.size, explicit=explicit)"
+    )
+
+
+def _render_components_constant(brief: dict | None) -> str:
+    """Render the module-level `COMPONENTS` tuple, or empty for single/no-brief.
+
+    The leading "\\n" makes a blank line above the block; the block carries no
+    trailing newline because the template line that follows ($components_constant)
+    supplies the line break before `DEFAULT_OUTPUT`.
+    """
+    components = (brief or {}).get("components") or []
+    if len(components) <= 1:
+        return ""
+    members = ", ".join(_dq(c) for c in components)
+    tuple_src = f"COMPONENTS = ({members})"
+    comment = (
+        "# The artifacts this part builds, seeded from DESIGN_BRIEF.md. "
+        "build_part\n"
+        "# dispatches on these names; --component / --all select among them."
+    )
+    if len(tuple_src) > _BLACK_LINE_LENGTH:
+        tuple_src = "COMPONENTS = (\n    " + members + ",\n)"
+    return f"\n{comment}\n{tuple_src}"
+
+
+def _render_build_part_def(brief: dict | None) -> str:
+    """Render `build_part`: single placeholder cube, or per-component dispatch."""
+    components = (brief or {}).get("components") or []
+    if len(components) <= 1:
+        return _SINGLE_BUILD_PART_DEF
+
+    builders: list[str] = []
+    dispatch_entries: list[str] = []
+    # A small per-component size bump keeps the placeholder cubes visually
+    # distinct so a build agent can tell the dispatch is wired up before
+    # replacing each body with real geometry.
+    for i, comp in enumerate(components):
+        func = f"_build_{_ident(comp)}"
+        bump = f" + {float(i)}" if i else ""
+        builders.append(
+            "# PLACEHOLDER (remove when implementing build_part): per-component\n"
+            f"# cube for {_dq(comp)}. Replace with the real {comp} geometry.\n"
+            f"def {func}(size):\n"
+            f'    """Placeholder cube for the {_dq(comp)} component."""\n'
+            f"    edge = size{bump}\n"
+            "    return Box(edge, edge, edge).translate((0, 0, edge / 2))"
+        )
+        dispatch_entries.append(f"    {_dq(comp)}: {func},")
+
+    builders_block = "\n\n\n".join(builders)
+    dispatch_block = "\n".join(dispatch_entries)
+    dispatch = (
+        "# Maps each component name to its placeholder builder. Replace each\n"
+        "# builder with the real geometry; keep the dispatch shape so "
+        "--component\n"
+        "# and --all keep working.\n"
+        "_COMPONENT_BUILDERS = {\n"
+        f"{dispatch_block}\n"
+        "}"
+    )
+    build_part = (
+        "def build_part(component=COMPONENTS[0], *, size: float = CUBE_SIZE_MM):\n"
+        '    """Build one component\'s solid.\n'
+        "\n"
+        "    Dispatches to the matching placeholder builder. Called with no\n"
+        "    arguments (e.g. by preview.py) it returns the FIRST component, so\n"
+        "    the repo still renders out of the box. Replace each per-component\n"
+        "    builder above with the real geometry.\n"
+        '    """\n'
+        "    return _COMPONENT_BUILDERS[component](size)"
+    )
+    return f"{builders_block}\n\n\n{dispatch}\n\n\n{build_part}"
+
+
+def _render_check_part_def(brief: dict | None) -> str:
+    """Render `check_part`: single-solid check, or a per-component loop."""
+    components = (brief or {}).get("components") or []
+    if len(components) <= 1:
+        return _SINGLE_CHECK_PART_DEF
+    return _MULTI_CHECK_PART_DEF
 
 
 # ----------------------------------------------------------------------------
@@ -369,7 +711,6 @@ def _build_substitutions(
     if brief is not None:
         seeded_constants = _render_seeded_constants(brief)
         seeded_cli_args = _render_seeded_cli_args(brief)
-        seeded_param_prints = _render_seeded_param_prints(brief)
         if has_build_plan:
             build_plan_pointer = (
                 "\n## Build plan\n\n"
@@ -392,9 +733,18 @@ def _build_substitutions(
     else:
         seeded_constants = ""
         seeded_cli_args = ""
-        seeded_param_prints = ""
         build_plan_pointer = ""
         design_docs_ref = "Read any design notes you have"
+
+    # build_part / check_part / main / COMPONENTS bodies. For a single-component
+    # (or no-brief) scaffold these render the exact original single-solid
+    # skeleton; the multi-component contract only appears for briefs with >1
+    # components. `seeded_param_prints` is folded into the rendered main below,
+    # so it is no longer a standalone template placeholder.
+    components_constant = _render_components_constant(brief)
+    build_part_def = _render_build_part_def(brief)
+    check_part_def = _render_check_part_def(brief)
+    main_def = _render_main_def(project_name, brief)
 
     return {
         "project_name": project_name,
@@ -407,7 +757,10 @@ def _build_substitutions(
         "summary_readme": summary_readme,
         "seeded_constants": seeded_constants,
         "seeded_cli_args": seeded_cli_args,
-        "seeded_param_prints": seeded_param_prints,
+        "components_constant": components_constant,
+        "build_part_def": build_part_def,
+        "check_part_def": check_part_def,
+        "main_def": main_def,
         "build_plan_pointer": build_plan_pointer,
         "design_docs_ref": design_docs_ref,
     }
