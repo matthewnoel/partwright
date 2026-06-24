@@ -22,14 +22,16 @@ import time
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 __all__ = ["run"]
 
-# Location of the self-contained drawing page, resolved relative to this file:
-#   partwright/sketch.py  ->  <repo root>/web/sketch.html
-_SKETCH_HTML = Path(__file__).resolve().parent.parent / "web" / "sketch.html"
+# Location of the self-contained drawing page. It ships inside the package at
+# partwright/web/sketch.html, resolved through importlib.resources so it is found
+# whether Partwright runs from a clone or an installed wheel.
+_SKETCH_HTML = Path(str(files("partwright") / "web" / "sketch.html"))
 
 # Largest SVG body we will accept on a save request (generous; sketches are
 # tiny text files — this is purely a sanity bound against a runaway upload).

@@ -21,7 +21,10 @@ two structured artifacts the rest of the workflow consumes.
 > 2. `BUILD_PLAN.md` — the *how*. Fill in the `BUILD_PLAN.md` template in this
 >    workspace: the concrete implementation handoff for the build agent.
 >
-> Do not write either file until you have enough to fill it without guessing.
+> Do not write either file until you have passed the **Writing gate** at the end
+> of this prompt. Writing the brief and plan is the *last* thing you do, only
+> after the maker explicitly tells you to — not the moment you think you have
+> enough. When in doubt, ask another question; do not write.
 
 ## How to run the interview
 
@@ -164,7 +167,36 @@ parametric") rather than omitting it.
 - The brief's "Reference sketches" section lists them and what to read from
   each; if none exist, say so and describe the one sketch that would help most.
 
+## Writing gate — do not skip
+
+You are biased toward finishing early. Resist it. Most of a good brief's value
+is in the constraints that only surface on the third or fourth question about a
+topic, so keep the conversation going until the gate below is genuinely met —
+not until you *could* fill the template.
+
+**Hard preconditions. Every one must be true before you write anything:**
+
+1. **Coverage.** Every one of the thirteen topics above has an explicit answer or
+   a recorded `N/A` — none left implicit or assumed.
+2. **Numbers reflected back.** You have restated every dimension, every derived
+   formula, and the full coordinate-system convention in your own words, and the
+   maker has confirmed them. Unconfirmed numbers are not done.
+3. **Open questions enumerated.** Every genuinely-undecided point is written into
+   an "Open questions" list you have shown the maker, and they have acknowledged
+   that list.
+
+**Then, and only then, the go-ahead step:**
+
+4. Present a short **coverage checklist** — one line per topic, each marked
+   covered or `N/A`, plus the open-questions list — and ask, verbatim:
+   *"Ready for me to write the brief and plan?"*
+5. Write **only** on an explicit affirmative. "Maybe", silence, a new question,
+   or a fresh detail is **not** a yes — fold it in and re-ask. Never infer the
+   go-ahead.
+
 ## When you are done
+
+Once the gate is passed:
 
 1. Write the filled `DESIGN_BRIEF.md` — frontmatter valid against `SCHEMA.md`,
    all eight body sections complete, parked unknowns in "Open questions".

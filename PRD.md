@@ -100,8 +100,10 @@ The working context that shapes the requirements:
 
 - **Toolchain:** `build123d` 0.9.1, `uv` for environments, `black` for
   formatting, Bambu Studio for slicing, macOS.
-- **Process:** Claude assists across a step-1 design chat and a separate step-2
-  build project; sketches and briefs are the artifacts that move between them.
+- **Process:** one Claude Code session (the `design-part` skill) orchestrates the
+  flow — it interviews, writes the brief and plan, scaffolds the repo, and spawns
+  a separate headless `claude` for the step-2 build. Sketches and briefs are the
+  artifacts that move between the interactive interview and the headless build.
 - **Environment fragility:** the local Homebrew Python installs have a broken
   `pyexpat`, which is why `uv` is used for environments. Partwright should favor
   **standard-library-only** code paths so the toolkit itself never reintroduces
@@ -109,29 +111,33 @@ The working context that shapes the requirements:
 
 ## 5. End-to-end workflow with Partwright
 
-A new part idea flows through Partwright like this:
+A new part idea flows through Partwright in a single Claude Code session, driven
+by the `design-part` skill:
 
 1. **Sketch.** `partwright sketch` opens the drawing tool. Matthew draws
    reference outlines — the part shape, how pieces fit together — and saves them
    as SVGs into an idea workspace.
 2. **Interview & brief.** `partwright brief <idea>` creates an idea workspace
-   pre-loaded with blank templates and the interview prompt. In a step-1 Claude
-   chat, Matthew points Claude at the interview prompt and attaches the
-   sketches; Claude interviews him and fills in `DESIGN_BRIEF.md` (the *what*)
-   and `BUILD_PLAN.md` (the *how* — the handoff for the build agent).
+   pre-loaded with blank templates and the interview prompt. The orchestrating
+   Claude interviews Matthew *in the same session*, reading the sketches, and —
+   behind a hard writing gate, only once Matthew says go — fills in
+   `DESIGN_BRIEF.md` (the *what*) and `BUILD_PLAN.md` (the *how*, the handoff for
+   the build agent).
 3. **Scaffold.** `partwright new <name> --brief <path>` stamps a fresh,
    standalone part repo, seeded from the brief, with `BUILD_PLAN.md` and
    `DESIGN_BRIEF.md` copied in so the repo carries its own plan, and the idea
    workspace's reference sketches copied into the repo's `reference/`.
-4. **Build.** Matthew opens the new repo as a fresh Claude project. Its
-   `CLAUDE.md` points the agent at `BUILD_PLAN.md`, and the agent implements
-   `generate.py` — rendering `preview.py` and visually verifying `preview.png`
-   before declaring a build step done.
+4. **Build.** The orchestrator spawns a separate headless `claude` in the new
+   repo. Its `CLAUDE.md` points that build agent at `BUILD_PLAN.md`, and the
+   agent implements `generate.py` — rendering `preview.py` and visually verifying
+   `preview.png` before declaring a build step done.
 5. **Iterate.** Slice in Bambu Studio, refine, and record any non-obvious fixes
    in the repo's `CLAUDE.md`.
 
-Partwright owns steps 1–3. Steps 4–5 are unchanged, but they start from a
-consistent, well-documented foundation every time.
+The orchestrator drives steps 1–4 from one conversation; the step-4 build agent
+still works purely from the repo's own `BUILD_PLAN.md`, so the handoff contract
+is unchanged — only automated. Step 5 starts from a consistent, well-documented
+foundation every time.
 
 ## 6. Components
 
@@ -379,17 +385,20 @@ partwright/
   ROADMAP.md                  # phased build plan
   README.md
   pyproject.toml              # `partwright` CLI entry point; Python 3.12, no runtime deps
-  partwright/
-    __init__.py
+  partwright/                 # the package; assets ship inside it so a wheel
+    __init__.py               #   install (uv tool install) is self-contained
     cli.py                    # argument dispatch to subcommands
     scaffold.py               # `partwright new`
     brief.py                  # `partwright brief`
     sketch.py                 # `partwright sketch` (local server)
-  templates/
-    project/                  # scaffolder templates (generate.py, CLAUDE.md, ...)
-    brief/                    # DESIGN_INTERVIEW.md, DESIGN_BRIEF.md, BUILD_PLAN.md, SCHEMA.md
-  web/
-    sketch.html               # self-contained SVG drawing tool
+    skill.py                  # `partwright install-skill`
+    templates/
+      project/                # scaffolder templates (generate.py, CLAUDE.md, ...)
+      brief/                  # DESIGN_INTERVIEW.md, DESIGN_BRIEF.md, BUILD_PLAN.md, SCHEMA.md
+    web/
+      sketch.html             # self-contained SVG drawing tool
+    skills/
+      design-part/            # the orchestrator skill (SKILL.md)
   examples/
     lidded-box/               # worked example: filled DESIGN_BRIEF.md + BUILD_PLAN.md
   requirements-dev.txt        # black, for developing Partwright itself
@@ -428,12 +437,18 @@ module's `run`.
 The open questions from earlier drafts were resolved on 2026-05-23. None of them
 gate the initial build; Phases 0–3 of `ROADMAP.md` are the full first scope.
 
-**Deferred — revisit after the initial build.**
+**Shipped after the initial build.**
 
-- _Cowork skill for the design interview._ The templates-plus-prompt MVP must
-  exist and be validated first, and a skill would package the identical Markdown
-  files — so nothing is lost by waiting. Revisit once a few real interviews show
-  whether the manual "point Claude at the prompt" step is worth eliminating.
+- _Orchestrator skill for the whole flow._ The deferred "Cowork skill for the
+  design interview" shipped as the `design-part` Claude Code skill (installed by
+  `partwright install-skill`). It goes further than just the interview: one
+  Claude Code session runs the interview inline, writes the brief and plan
+  (behind a hard writing gate so it never finishes early), scaffolds the repo,
+  and spawns a separate headless `claude` to build from `BUILD_PLAN.md`. It
+  packages the identical Markdown artifacts, so the templates-plus-prompt MVP
+  remains the source of truth.
+
+**Deferred — revisit later.**
 - _Precise-mode `import_svg` validation._ Precise mode already records correct
   millimeter scale and units in the exported SVG, which keeps the geometry-import
   door open at no cost. Verifying a clean `build123d` import is premature until a

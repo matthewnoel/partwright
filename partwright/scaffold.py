@@ -17,13 +17,15 @@ import string
 import subprocess
 import sys
 import tomllib
+from importlib.resources import files
 from pathlib import Path
 
 __all__ = ["run"]
 
-# Directory holding the templates/project/ files, resolved relative to this
-# module (partwright/scaffold.py -> ../templates/project).
-_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates" / "project"
+# Directory holding the templates/project/ files. They ship inside the package
+# at partwright/templates/project/, resolved through importlib.resources so they
+# are found whether Partwright runs from a clone or an installed wheel.
+_TEMPLATE_DIR = Path(str(files("partwright") / "templates" / "project"))
 
 # Maps each template file to its rendered name in the generated repo. Files
 # whose final name differs from a literal `.template` strip (dotfiles) are

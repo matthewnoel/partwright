@@ -23,17 +23,24 @@ Three subcommands, one per stage of the design workflow:
 
 ## Recommended working model
 
-The commands chain into one low-friction loop; each stage hands a concrete
-artifact to the next:
+Install the `design-part` skill once (`partwright install-skill`) and you drive
+the whole thing from **one** Claude Code conversation — no pasting prompts into a
+second chat, no hand-copying files between sessions:
 
 ```
-partwright sketch    →  draw design intent            →  reference SVGs
-partwright brief     →  interview in a Claude chat     →  DESIGN_BRIEF.md + BUILD_PLAN.md
-partwright new       →  scaffold the repo (sketches copied into reference/)
-open in Claude Code  →  implement build_part → generate.py → preview.py
-                        → read preview.png → show you → iterate   (the visual loop)
-Bambu Studio         →  slice & physically verify
+/design-part  in Claude Code
+   ├─ partwright sketch   →  draw design intent (optional)      →  reference SVGs
+   ├─ partwright brief    →  interview you, in this session     →  DESIGN_BRIEF.md + BUILD_PLAN.md
+   ├─ partwright new      →  scaffold the repo (sketches → reference/)
+   └─ claude (headless)   →  build agent works from BUILD_PLAN.md
+                             → generate.py → preview.py → preview.png → iterate
+Bambu Studio              →  slice & physically verify
 ```
+
+One Claude orchestrates: it interviews you live, writes the brief and plan only
+once you say go, scaffolds the repo, then spawns a separate headless `claude` to
+build the part from the plan. The `partwright` subcommands below are the tools it
+drives — you can also run them by hand.
 
 The thing that makes this low-friction is the **visual loop**: the generated repo
 renders a multi-view `preview.png` of its own geometry, so Claude verifies the
@@ -43,37 +50,41 @@ through every stage, so the part is rarely described in prose alone.
 
 ## Requirements
 
-- Python 3.12 (Partwright uses the standard-library `tomllib`, which needs
-  Python 3.11+; 3.12 is the supported target).
-- [`uv`](https://docs.astral.sh/uv/) — recommended for managing the Python
-  environment. The local Homebrew Python installs on this machine have a broken
-  `pyexpat`, so `uv` is used to provide a reliable 3.12 interpreter.
+- [`uv`](https://docs.astral.sh/uv/) — the only thing you need to install.
+  It provides the Python 3.12 interpreter Partwright runs on (the standard
+  library `tomllib` needs 3.11+), so you never manage a virtualenv by hand.
 
 Partwright has **zero third-party runtime dependencies** — everything it needs
-ships with the Python standard library.
+ships with the Python standard library, bundled into the package.
 
 ## Install
 
-Using `uv`:
+Install it once as a global CLI with `uv tool` — no virtualenv, no activation, no
+clone to keep around:
 
 ```sh
-uv venv .venv --python 3.12
-uv pip install -e .
-source .venv/bin/activate
+uv tool install git+https://github.com/matthewnoel/partwright
 ```
 
-This installs the `partwright` console entry point and activates the
-environment, so the `partwright` command is on your `PATH`. In a new shell,
-re-activate with `source .venv/bin/activate` — or skip activation entirely and
-prefix commands with `uv run` (e.g. `uv run partwright sketch`).
-
-You can also run Partwright without installing it, straight from a clone:
+That puts a `partwright` command on your `PATH`. Then install the orchestrator
+skill so one Claude Code session can run the whole flow:
 
 ```sh
-python -m partwright --help
+partwright install-skill
 ```
 
-(`python` here must be a 3.12 interpreter — e.g. `uv run --python 3.12 python -m partwright --help`.)
+`install-skill` drops the `design-part` skill into `~/.claude/skills/`; use
+`partwright install-skill --dest <dir>` instead to scope it to a single project
+folder (`<dir>/.claude/skills/`) rather than your global config.
+
+To run a one-off without installing, use `uvx`:
+
+```sh
+uvx --from git+https://github.com/matthewnoel/partwright partwright sketch
+```
+
+(Once Partwright is published to PyPI, `uv tool install partwright` and
+`uvx partwright` will work by bare name.)
 
 ## Usage
 
@@ -121,15 +132,29 @@ Serves the self-contained SVG sketch tool from a tiny local server and opens it
 in the browser. Drawings save into `--dest`. The same HTML file also works
 opened directly via `file://`, falling back to a browser download.
 
+### `partwright install-skill`
+
+```
+partwright install-skill [--user | --dest DIR] [--force]
+```
+
+Installs the `design-part` Claude Code skill — the orchestrator that runs the
+whole flow from one session (see *Recommended working model*). `--user` (the
+default) installs to `~/.claude/skills/`; `--dest DIR` installs to
+`DIR/.claude/skills/` so a parent project folder carries the skill without
+adding it to your global config. `--force` overwrites an existing copy. After
+installing, start a design with `/design-part` in Claude Code.
+
 ## Development
 
 Partwright targets Python 3.12 and is formatted with
-[`black`](https://black.readthedocs.io/) — the formatting source of truth.
+[`black`](https://black.readthedocs.io/) — the formatting source of truth. Run it
+straight from a clone with `uv run`:
 
 ```sh
-uv pip install -r requirements-dev.txt
-black partwright/
-black --check partwright/
+uv run --python 3.12 python -m partwright --help   # run without installing
+uv run --with black black partwright/
+uv run --with black black --check partwright/
 ```
 
 ## Repository layout
@@ -145,11 +170,14 @@ partwright/
     scaffold.py           # `partwright new`
     brief.py              # `partwright brief`
     sketch.py             # `partwright sketch`
-  templates/
-    project/              # scaffolder templates
-    brief/                # design-brief templates + SCHEMA.md
-  web/
-    sketch.html           # self-contained SVG sketch tool
+    skill.py              # `partwright install-skill`
+    templates/
+      project/            # scaffolder templates
+      brief/              # design-brief templates + SCHEMA.md
+    web/
+      sketch.html         # self-contained SVG sketch tool
+    skills/
+      design-part/        # the orchestrator skill (SKILL.md)
   examples/
     lidded-box/           # worked example: filled DESIGN_BRIEF.md + BUILD_PLAN.md
   requirements-dev.txt    # black, for developing Partwright itself
