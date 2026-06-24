@@ -14,6 +14,7 @@ the repo runs out of the box. Replace `build_part` with the real geometry.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from build123d import Box, export_stl
@@ -56,6 +57,58 @@ def build_part(*, size: float = CUBE_SIZE_MM):
 
 
 # ----------------------------------------------------------------------------
+# Geometry self-check
+# ----------------------------------------------------------------------------
+
+
+def check_part(solid=None) -> bool:
+    """Sanity-check the built geometry; return True if it passes.
+
+    Two checks run for any part: the result must be a single watertight solid
+    (more than one solid usually means a Boolean silently split the part), and
+    the bounding box is printed so you can reconcile it against the expected
+    dimensions in DESIGN_BRIEF.md. Fill in EXPECTED below to turn the dimension
+    readout into a hard assert — then `generate.py --check` becomes a real
+    guardrail the build loop (and the dogfood harness) can gate on.
+    """
+    if solid is None:
+        solid = build_part()
+    bbox = solid.bounding_box()
+    size = bbox.size
+    n_solids = len(solid.solids())
+
+    print("geometry self-check:")
+    print(f"  solids        : {n_solids}")
+    print(f"  bounding box  : {size.X:.2f} x {size.Y:.2f} x {size.Z:.2f} mm")
+    print(
+        f"  min .. max    : "
+        f"({bbox.min.X:.2f}, {bbox.min.Y:.2f}, {bbox.min.Z:.2f}) .. "
+        f"({bbox.max.X:.2f}, {bbox.max.Y:.2f}, {bbox.max.Z:.2f})"
+    )
+
+    problems = []
+    if n_solids != 1:
+        problems.append(
+            f"expected a single watertight solid, got {n_solids} "
+            "(a Boolean op may have split the part)"
+        )
+    # PLACEHOLDER (fill in from DESIGN_BRIEF.md section 5): assert the expected
+    # overall dimensions so a wrong build fails loudly. Uncomment and edit:
+    # expected = (97.0, 68.0, 3.0)  # (X, Y, Z) in mm
+    # tolerance = 0.5
+    # for axis, got, want in zip("XYZ", (size.X, size.Y, size.Z), expected):
+    #     if abs(got - want) > tolerance:
+    #         problems.append(f"{axis} = {got:.2f} mm, expected {want} +/- {tolerance}")
+
+    if problems:
+        for p in problems:
+            print(f"  FAIL: {p}")
+        return False
+    print("  OK")
+    return True
+
+
+# ----------------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------------
 
@@ -79,11 +132,19 @@ $seeded_cli_args    p.add_argument(
         metavar="PATH",
         help=f"STL output path. Default: {DEFAULT_OUTPUT}.",
     )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="run the geometry self-check (single solid + bounding box) and exit.",
+    )
     return p.parse_args()
 
 
 def main():
     args = _parse_args()
+
+    if args.check:
+        sys.exit(0 if check_part() else 1)
 
     if args.output is None:
         args.output = Path(DEFAULT_OUTPUT)
