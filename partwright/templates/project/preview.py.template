@@ -2,15 +2,19 @@
 """Render a multi-view PNG preview of $project_name.
 
 A quick visual check of `build_part`'s geometry without opening a slicer:
-tessellates the solid and renders a 2x2 contact sheet (isometric, top, front,
-right) to `preview.png`. Runs headless (matplotlib Agg backend), so it works
-over SSH or inside a coding agent with no display attached.
+tessellates the solid and renders a 2x2 contact sheet to `preview.png`. Three
+panels are shaded 3D views (isometric, front, right); the fourth is a flat,
+true-orthographic top-down (-Z) silhouette. Runs headless (matplotlib Agg
+backend), so it works over SSH or inside a coding agent with no display.
 
 This is a rough geometric check, not a photoreal render: matplotlib's 3D axes
 use a painter's algorithm with no depth buffer, so on concave parts a face may
-occasionally poke through. Use it to confirm overall shape, orientation
-(+Z up, floor on z = 0), centering, and feature placement — then slice in
-Bambu Studio for the real verification.
+occasionally poke through and triangulation diagonals streak across faces. The
+flat 2D top panel sidesteps that — it draws the part's projected footprint with
+no triangulation overlay, so a through-hole pattern reads as clean voids and
+feature spacing is unambiguous. Use the contact sheet to confirm overall shape,
+orientation (+Z up, floor on z = 0), centering, and feature placement — then
+slice in Bambu Studio for the real verification.
 
 Reuses `build_part` from generate.py, called with NO arguments, so every
 parameter of `build_part` must keep a default (which is also what lets the repo
@@ -28,6 +32,7 @@ matplotlib.use("Agg")  # headless raster backend; MUST precede the pyplot import
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.collections import PolyCollection  # noqa: E402
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection  # noqa: E402
 
 from generate import build_part  # noqa: E402
@@ -36,14 +41,14 @@ DEFAULT_OUTPUT = "preview.png"
 DEFAULT_TOLERANCE_MM = 0.2  # mesh linear deflection; smaller is finer but slower
 DEFAULT_DPI = 110
 
-# (name, elevation, azimuth, flat_axis) per panel. The three orthographic views
-# align with the coordinate axes so they read as standard top / front / right
-# elevations; `flat_axis` is the depth axis to hide on each (None for isometric).
-_VIEWS = (
-    ("isometric", 30, -60, None),
-    ("top (+Z)", 90, -90, "z"),
-    ("front (-Y)", 0, -90, "y"),
-    ("right (+X)", 0, 0, "x"),
+# (grid_pos, name, elevation, azimuth, flat_axis) per 3D panel. The two
+# axis-aligned views read as standard front / right elevations; `flat_axis` is
+# the depth axis to hide on each (None for isometric). Grid position 2 (top
+# right) is reserved for the flat 2D true-ortho top panel drawn separately.
+_VIEWS_3D = (
+    (1, "isometric", 30, -60, None),
+    (3, "front (-Y)", 0, -90, "y"),
+    (4, "right (+X)", 0, 0, "x"),
 )
 
 # Light direction for the cheap diffuse shading that gives the faces depth.
@@ -72,6 +77,27 @@ def _face_shading(triangles: np.ndarray) -> np.ndarray:
     )
 
 
+def _draw_top_2d(ax, triangles: np.ndarray, center: np.ndarray, half: float) -> None:
+    """Draw a flat true-orthographic top-down (-Z) silhouette into a 2D axes.
+
+    Projects every triangle straight onto the XY plane and fills it with no
+    edge lines, so the union reads as a solid footprint and through-holes show
+    as clean voids — no 3D depth, no triangulation streaks. This is the panel
+    to trust for reading a hole pattern and its spacing.
+    """
+    footprint = triangles[:, :, :2]  # drop Z -> (n, 3, 2) XY triangles
+    ax.add_collection(
+        PolyCollection(footprint, facecolors=(0.55, 0.55, 0.6, 1.0), edgecolors="none")
+    )
+    ax.set_aspect("equal")
+    ax.set_xlim(center[0] - half, center[0] + half)
+    ax.set_ylim(center[1] - half, center[1] + half)
+    ax.set_title("top (XY, flat ortho)")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.grid(True, linewidth=0.3, alpha=0.4)
+
+
 def render(output: Path, tolerance: float, dpi: int) -> None:
     """Render the 2x2 multi-view contact sheet to `output`."""
     triangles = _triangles(tolerance)
@@ -81,8 +107,9 @@ def render(output: Path, tolerance: float, dpi: int) -> None:
     center = (points.min(axis=0) + points.max(axis=0)) / 2
     half = (points.max(axis=0) - points.min(axis=0)).max() / 2 * 1.1 or 1.0
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw={"projection": "3d"})
-    for ax, (name, elev, azim, flat) in zip(axes.flat, _VIEWS):
+    fig = plt.figure(figsize=(10, 10))
+    for pos, name, elev, azim, flat in _VIEWS_3D:
+        ax = fig.add_subplot(2, 2, pos, projection="3d")
         mesh = Poly3DCollection(
             triangles,
             facecolors=colors,
@@ -111,6 +138,9 @@ def render(output: Path, tolerance: float, dpi: int) -> None:
         elif flat == "z":
             ax.set_zticklabels([])
             ax.set_zlabel("")
+
+    # Top-right panel: the flat 2D true-ortho top view (grid position 2).
+    _draw_top_2d(fig.add_subplot(2, 2, 2), triangles, center, half)
 
     fig.suptitle("$project_name preview", fontsize=14)
     fig.savefig(output, dpi=dpi)
