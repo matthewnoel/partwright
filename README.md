@@ -161,8 +161,6 @@ uv run --with black black --check partwright/
 
 ```
 partwright/
-  PRD.md                  # product requirements
-  ROADMAP.md              # phased build plan
   README.md               # this file
   pyproject.toml          # package metadata; `partwright` entry point, no runtime deps
   partwright/              # the CLI package (standard library only)
