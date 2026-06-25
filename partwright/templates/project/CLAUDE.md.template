@@ -36,6 +36,27 @@ parameter keeps a default). The renderer is installed by
 `uv pip install -r requirements.txt`. For a multi-component part, extend
 `preview.py` to render each component (loop over them, or fuse for a combined view).
 
+## Multi-component parts
+
+When `DESIGN_BRIEF.md` declares more than one `component`, `generate.py` carries
+a `COMPONENTS` tuple and the build/check/export contract is per-component:
+
+- **`build_part` return contract.** `build_part(component=...)` dispatches to the
+  named component's geometry. Called with **no arguments** it returns the **first**
+  component (`COMPONENTS[0]`), so `preview.py` and the out-of-the-box run still
+  work. Keep this shape when you implement the real geometry: one builder per
+  component, dispatched by name, no-arg still returning the first.
+- **STL export.** `--component <name>` builds and exports a single component to
+  `<project>-<component>.stl`; `--all` exports every component, each to its own
+  per-component filename, in one run. An explicit `--output` applies only when a
+  single component is exported. (A single-component part still exports to
+  `<project>.stl` with no `--component` flag.)
+- **`check_part` iterates components.** It builds each component, prints its
+  bounding box and solid count, and asserts **each** component is a single
+  watertight solid — so a genuine multi-piece part no longer trips the
+  "expected exactly one solid" check. Fill in the per-component expected-dimension
+  map to turn the readout into a hard assert.
+
 ## Coordinate system
 
 Right-handed:
@@ -72,6 +93,13 @@ OCCT booleans are flaky when an operation must resolve two coincident faces, and
 the artifacts only show up after STL export. When you add a feature that cuts or
 fuses to a face of the parent solid, give the cutter a small overshoot (a
 `_FACE_OVERLAP_MM`-style tab) so the Boolean never resolves a coincident face.
+
+Fillets need the same care on edge selection. A single scalar radius usually
+cannot be applied to a whole edge set at once — at a tight concave corner the
+requested radius exceeds the available room and OCCT raises
+`ValueError: Failed creating a fillet`. Select the edges deliberately (filter by
+position or orientation, e.g. only the four vertical outer corners) rather than
+filleting every edge, and keep the radius within what the geometry allows.
 
 ## Reference sketches
 

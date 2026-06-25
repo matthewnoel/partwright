@@ -25,7 +25,7 @@ from build123d import Box, export_stl
 # seeded constants. Grep this file for "PLACEHOLDER" to find every spot.
 # PLACEHOLDER (remove when implementing build_part): the cube edge length.
 CUBE_SIZE_MM = $cube_size_default  # edge length of the placeholder cube
-$seeded_constants
+$seeded_constants$components_constant
 DEFAULT_OUTPUT = "$default_output"
 
 
@@ -46,14 +46,7 @@ DEFAULT_OUTPUT = "$default_output"
 # is placeholder cube geometry. Replace its signature and body with the real
 # part; keep it callable with no arguments (every parameter defaulted) so the
 # repo runs out of the box and `preview.py` can render it.
-def build_part(*, size: float = CUBE_SIZE_MM):
-    """Build the part solid.
-
-    Placeholder geometry: a cube of edge length `size`, sitting on the build
-    plate (z = 0). Replace this body with the real part; the seeded constants
-    above are ready to wire in.
-    """
-    return Box(size, size, size).translate((0, 0, size / 2))
+$build_part_def
 
 
 # ----------------------------------------------------------------------------
@@ -61,51 +54,7 @@ def build_part(*, size: float = CUBE_SIZE_MM):
 # ----------------------------------------------------------------------------
 
 
-def check_part(solid=None) -> bool:
-    """Sanity-check the built geometry; return True if it passes.
-
-    Two checks run for any part: the result must be a single watertight solid
-    (more than one solid usually means a Boolean silently split the part), and
-    the bounding box is printed so you can reconcile it against the expected
-    dimensions in DESIGN_BRIEF.md. Fill in EXPECTED below to turn the dimension
-    readout into a hard assert — then `generate.py --check` becomes a real
-    guardrail the build loop (and the dogfood harness) can gate on.
-    """
-    if solid is None:
-        solid = build_part()
-    bbox = solid.bounding_box()
-    size = bbox.size
-    n_solids = len(solid.solids())
-
-    print("geometry self-check:")
-    print(f"  solids        : {n_solids}")
-    print(f"  bounding box  : {size.X:.2f} x {size.Y:.2f} x {size.Z:.2f} mm")
-    print(
-        f"  min .. max    : "
-        f"({bbox.min.X:.2f}, {bbox.min.Y:.2f}, {bbox.min.Z:.2f}) .. "
-        f"({bbox.max.X:.2f}, {bbox.max.Y:.2f}, {bbox.max.Z:.2f})"
-    )
-
-    problems = []
-    if n_solids != 1:
-        problems.append(
-            f"expected a single watertight solid, got {n_solids} "
-            "(a Boolean op may have split the part)"
-        )
-    # PLACEHOLDER (fill in from DESIGN_BRIEF.md section 5): assert the expected
-    # overall dimensions so a wrong build fails loudly. Uncomment and edit:
-    # expected = (97.0, 68.0, 3.0)  # (X, Y, Z) in mm
-    # tolerance = 0.5
-    # for axis, got, want in zip("XYZ", (size.X, size.Y, size.Z), expected):
-    #     if abs(got - want) > tolerance:
-    #         problems.append(f"{axis} = {got:.2f} mm, expected {want} +/- {tolerance}")
-
-    if problems:
-        for p in problems:
-            print(f"  FAIL: {p}")
-        return False
-    print("  OK")
-    return True
+$check_part_def
 
 
 # ----------------------------------------------------------------------------
@@ -140,28 +89,7 @@ $seeded_cli_args    p.add_argument(
     return p.parse_args()
 
 
-def main():
-    args = _parse_args()
-
-    if args.check:
-        sys.exit(0 if check_part() else 1)
-
-    if args.output is None:
-        args.output = Path(DEFAULT_OUTPUT)
-
-    print("$project_name — resolved parameters:")
-    # PLACEHOLDER (remove when implementing build_part): the cube-size print.
-    print(f"  Cube size            : {args.size} mm")
-$seeded_param_prints    print(f"  Output               : {args.output}")
-    print()
-
-    solid = build_part(size=args.size)
-
-    out_path = args.output
-    if out_path.parent and str(out_path.parent) not in ("", "."):
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-    export_stl(solid, str(out_path))
-    print(f"Wrote STL: {out_path}")
+$main_def
 
 
 if __name__ == "__main__":

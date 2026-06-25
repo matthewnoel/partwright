@@ -54,6 +54,13 @@ meaning = "slot tilt off vertical, toward +Y"
 default = 10.0
 unit    = "deg"                           # per-parameter override; omit for lengths
 cli     = true
+
+[[parameters]]
+name         = "nameplate_width"
+meaning      = "nameplate slab width along X"
+default      = 101.6
+cli          = false                      # reference dim: a constant, not a flag
+derived_from = "nameplate_width = segment_length"  # documents the relation only
 +++
 ```
 
@@ -93,6 +100,25 @@ knob. Each becomes a named constant in the generated `generate.py`, and — when
 | `default` | **required** | number | The default value. Interpreted in `units` for lengths, unless `unit` overrides it. |
 | `cli` | **required** | boolean | Whether to expose this parameter as a CLI flag. |
 | `unit` | optional | string | Per-parameter unit override (e.g. `"deg"`). Omit for plain lengths, which use the top-level `units`. |
+| `derived_from` | optional | string | A short relation showing how this dimension is derived from or related to others (e.g. `"throat_depth = shelf_thickness"`, `"plate_width = board_footprint_x + 2*plate_margin"`). Surfaced as a `# derived: ...` comment above the seeded constant so the relation is captured in code, not buried in prose. The value is documentation only — the scaffolder does **not** evaluate it. |
+
+### Reference and derived dimensions
+
+Some load-bearing numbers are not independent tunable knobs: a **reference**
+dimension is authoritative-but-fixed (e.g. a board footprint a plate is sized
+around), and a **derived** dimension is defined by a relation to other
+parameters. Express both as ordinary `[[parameters]]` entries so they are seeded
+as named constants like every other dimension:
+
+- For a **reference** dimension, add a `[[parameters]]` entry with `cli = false`
+  so it becomes a constant but no flag.
+- For a **derived** dimension, add the `derived_from` field documenting the
+  relation. The scaffolder records the relation as a comment above the constant;
+  a build agent reads it and computes the value when wiring `build_part` (the
+  scaffolder does not evaluate expressions — it stays a stdlib `tomllib` parse).
+
+This keeps such numbers out of the prose body, where a build agent would
+otherwise have to infer them.
 
 ## Constant and flag derivation rule
 
@@ -113,9 +139,24 @@ parameter's `name` and `unit`:
 ## `components` behavior
 
 - If `components` is **omitted**, or contains a **single entry**, the part is a
-  one-artifact part and no `--component` flag is generated.
-- If `components` contains **more than one entry**, the scaffolder adds a
-  `--component` choice flag whose choices are the listed component names.
+  one-artifact part: `build_part(*, size=...)` returns one solid, `check_part`
+  asserts a single watertight solid, and the default STL export path is
+  `<project_name>.stl`. No `--component` flag is generated.
+- If `components` contains **more than one entry**, the scaffolder emits a
+  per-component build/check/export contract in `generate.py`:
+  - A module-level `COMPONENTS` tuple seeded from the listed names.
+  - `build_part(component=COMPONENTS[0], *, size=...)` dispatches to a
+    per-component placeholder builder. Called with **no arguments** it returns
+    the **first** component, so `preview.py` (which calls `build_part()` with no
+    args) and the out-of-the-box run still work.
+  - A `--component` choice flag (choices = the component names, default =
+    first) selects which component to build and export, and an `--all` flag
+    exports every component in one run.
+  - Per-component STL filenames: `<project_name>-<component>.stl`. An explicit
+    `--output` applies only when a single component is exported.
+  - `check_part` iterates `COMPONENTS`, printing each component's bounding box
+    and solid count and asserting **each** is a single watertight solid (rather
+    than asserting the whole part is exactly one solid).
 
 ## Malformed-brief behavior
 
